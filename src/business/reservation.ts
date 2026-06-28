@@ -1,3 +1,5 @@
+import type { OrderData } from "./order.js";
+
 export type ReservationStatus =
   | "greeting"            // first contact — showing welcome + options
   | "collecting"          // gathering reservation fields
@@ -6,7 +8,10 @@ export type ReservationStatus =
   | "escalated"           // handed off to human
   | "cancelled"           // reservation cancelled
   | "cancelling_lookup"   // waiting for ID or name+date to find reservation
-  | "cancelling_confirm"; // found reservation, waiting for cancel confirmation
+  | "cancelling_confirm"  // found reservation, waiting for cancel confirmation
+  | "ordering_link"       // sent menu link, waiting for first item
+  | "ordering_items"      // collecting order items
+  | "ordering_confirm";   // showing order summary, waiting for confirmation
 
 export interface ReservationData {
   fecha?: string;      // YYYY-MM-DD
@@ -14,6 +19,7 @@ export interface ReservationData {
   personas?: number;
   nombre?: string;
   peticiones?: string; // optional special requests
+  order?: OrderData;   // active order being built
 }
 
 export type ReservationField = keyof ReservationData;

@@ -56,5 +56,7 @@ export function loadRestaurantFromEnv(): RestaurantConfig {
     googleCredentialsPath: credJson || credPath,
     cancellationPolicy: process.env.RESTAURANT_CANCELLATION_POLICY ?? "",
     faq: parseFaq(process.env.RESTAURANT_FAQ),
+    sheetsId: process.env.GOOGLE_SHEETS_ID?.trim() || undefined,
+    menuWebUrl: process.env.MENU_WEB_URL?.trim() || undefined,
   };
 }

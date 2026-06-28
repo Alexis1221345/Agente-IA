@@ -1,5 +1,6 @@
 import { db } from "./db.js";
 import type { ReservationData, ReservationStatus } from "../business/reservation.js";
+import { orderTotal, formatOrderId } from "../business/order.js";
 
 export interface Message {
   role: "user" | "assistant";
@@ -151,6 +152,24 @@ export function findReservationByNameAndDate(
 export function updateReservationExternalId(id: number, externalId: string): void {
   db.prepare("UPDATE reservations SET external_id = ? WHERE id = ?").run(externalId, id);
 }
+
+export function saveOrder(state: ConversationState): number {
+  const items = state.data.order?.items ?? [];
+  const total = orderTotal(items);
+  const result = db.prepare(`
+    INSERT INTO orders (restaurant_id, phone, items, total, status, created_at)
+    VALUES (?, ?, ?, ?, 'pending', ?)
+  `).run(
+    state.restaurantId,
+    state.phone,
+    JSON.stringify(items),
+    total,
+    Date.now(),
+  );
+  return Number(result.lastInsertRowid);
+}
+
+export { formatOrderId };
 
 export function resetConversation(phone: string): void {
   db.prepare("DELETE FROM conversations WHERE phone = ?").run(phone);

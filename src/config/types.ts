@@ -17,4 +17,6 @@ export interface RestaurantConfig {
   googleCredentialsPath?: string; // path to service account JSON for this restaurant
   cancellationPolicy: string;  // shown to customer on confirm
   faq: Record<string, string>; // question pattern → answer
+  sheetsId?: string;           // Google Sheets ID for the menu
+  menuWebUrl?: string;         // public URL where customers can browse the menu
 }

@@ -35,6 +35,16 @@ function createDb(): DatabaseSync {
       external_id   TEXT,
       created_at    INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS orders (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      restaurant_id TEXT NOT NULL,
+      phone         TEXT NOT NULL,
+      items         TEXT NOT NULL,
+      total         INTEGER NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'pending',
+      created_at    INTEGER NOT NULL
+    );
   `);
 
   return db;

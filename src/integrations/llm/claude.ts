@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ILLMClient, ExtractedFields } from "./llm.interface.js";
+import type { ILLMClient, ExtractedFields, ExtractedOrderItems, RawOrderItem } from "./llm.interface.js";
 import type { Message } from "../../data/conversation-repo.js";
 import type { ReservationData } from "../../business/reservation.js";
 
@@ -109,6 +109,87 @@ export class ClaudeLLMClient implements ILLMClient {
     }
 
     return { fields, raw };
+  }
+
+  async extractOrderItems(
+    history: Message[],
+    userMessage: string,
+  ): Promise<ExtractedOrderItems> {
+    const ORDER_TOOL: Anthropic.Tool = {
+      name: "extract_order",
+      description:
+        "Extract food/drink items from a customer's order message. " +
+        "Detect quantities, modifications (extras to add, ingredients to remove), " +
+        "whether the customer is done ordering, and whether they want to remove an item already ordered.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                nombre:   { type: "string", description: "Product name exactly as stated" },
+                cantidad: { type: "integer", description: "Quantity (default 1)" },
+                extras:   { type: "array", items: { type: "string" }, description: "Things to add (e.g. 'shot extra', 'leche de avena')" },
+                sin:      { type: "array", items: { type: "string" }, description: "Ingredients to remove (e.g. 'cajeta', 'nuez')" },
+                nota:     { type: "string", description: "Other modification as a free note" },
+              },
+              required: ["nombre", "cantidad"],
+            },
+            description: "New items the customer wants to order",
+          },
+          is_done: {
+            type: "boolean",
+            description: "True if customer said they're done (listo, eso es todo, nada más, ya, etc.)",
+          },
+          remove_nombre: {
+            type: "string",
+            description: "Name of an item to remove from the order (quita X, elimina X, ya no quiero X)",
+          },
+        },
+        required: ["items", "is_done"],
+      },
+    };
+
+    const messages: Anthropic.MessageParam[] = [
+      ...history.map((m) => ({ role: m.role, content: m.content })),
+      { role: "user", content: userMessage },
+    ];
+
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 512,
+      system:
+        "You are an order parser for a Mexican café. Extract items the customer wants to order, including modifications. Use the provided tool.",
+      tools: [ORDER_TOOL],
+      tool_choice: { type: "auto" },
+      messages,
+    });
+
+    const toolUse = response.content.find((b) => b.type === "tool_use");
+    if (!toolUse || toolUse.type !== "tool_use") {
+      return { items: [], isDone: false };
+    }
+
+    const input = toolUse.input as Record<string, unknown>;
+    const rawItems = (Array.isArray(input.items) ? input.items : []) as Array<Record<string, unknown>>;
+
+    const items: RawOrderItem[] = rawItems.map((r) => ({
+      nombre:   String(r.nombre ?? ""),
+      cantidad: typeof r.cantidad === "number" ? Math.max(1, Math.round(r.cantidad)) : 1,
+      extras:   Array.isArray(r.extras) ? (r.extras as string[]).filter(Boolean) : [],
+      sin:      Array.isArray(r.sin)    ? (r.sin    as string[]).filter(Boolean) : [],
+      nota:     typeof r.nota === "string" && r.nota.trim() ? r.nota.trim() : undefined,
+    })).filter((i) => i.nombre.trim());
+
+    return {
+      items,
+      isDone: Boolean(input.is_done),
+      removeNombre: typeof input.remove_nombre === "string" && input.remove_nombre.trim()
+        ? input.remove_nombre.trim()
+        : undefined,
+    };
   }
 
   async generateReply(

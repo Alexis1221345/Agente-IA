@@ -8,6 +8,16 @@ export interface ConversationRow {
   updated_at: number; // Unix ms
 }
 
+export interface OrderRow {
+  id?: number;
+  restaurant_id: string;
+  phone: string;
+  items: string;   // JSON array of OrderItem
+  total: number;
+  status: string;
+  created_at: number;
+}
+
 export interface ReservationRow {
   id?: number;
   restaurant_id: string;

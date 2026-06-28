@@ -4,10 +4,13 @@ import utc from "dayjs/plugin/utc.js";
 import type { ILLMClient } from "../integrations/llm/llm.interface.js";
 import type { RestaurantConfig } from "../config/types.js";
 import { getCalendarClient } from "../integrations/calendar/factory.js";
+import { getMenuClient, type MenuItem } from "../integrations/sheets/menu-client.js";
 import {
   loadConversation,
   saveConversation,
   saveReservation,
+  saveOrder,
+  formatOrderId,
   updateReservationExternalId,
   resetConversation,
   findReservationById,
@@ -20,6 +23,7 @@ import {
 } from "../data/conversation-repo.js";
 import { normalizeDate, normalizeTime } from "../business/normalizer.js";
 import { nextAction, buildSummary } from "./gap-filler.js";
+import { type OrderItem, formatOrderSummary, orderTotal } from "../business/order.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -114,10 +118,18 @@ export class ReservationAgent {
       // Read status AFTER the call — handleGreeting may mutate it
       const statusAfterGreeting: string = state.status;
       if (statusAfterGreeting !== "collecting") {
-        return greetingReply; // stayed in greeting or went to cancelling flow
+        return greetingReply; // stayed in greeting, went to cancelling flow, or ordering flow
       }
       // Status is now "collecting" — fall through to extract any fields from this message
       // so the user doesn't need to repeat data they already gave (e.g. date/time)
+    }
+
+    // Ordering flow
+    if (state.status === "ordering_link" || state.status === "ordering_items") {
+      return await this.handleOrderingItems(state, text, config);
+    }
+    if (state.status === "ordering_confirm") {
+      return await this.handleOrderingConfirm(state, text, config);
     }
 
     // Cancellation flow
@@ -460,6 +472,215 @@ export class ReservationAgent {
     return `¿Confirmas la cancelación de la reserva *${formatResId(target.id)}*? (sí / no)`;
   }
 
+  private menuClient(config: RestaurantConfig) {
+    if (!config.sheetsId || !config.googleCredentialsPath) return null;
+    return getMenuClient(config.googleCredentialsPath, config.sheetsId);
+  }
+
+  private async handleOrderingItems(
+    state: ConversationState,
+    text: string,
+    config: RestaurantConfig,
+  ): Promise<string> {
+    const DONE_WORDS =
+      /^\s*(listo|ya|eso\s+es\s+todo|nada\s+m[aá]s|es\s+todo|termin[eé]|ya\s+es\s+todo|ok\s+listo|todo|fin)\s*$/i;
+
+    const order = state.data.order ?? { items: [] };
+
+    if (DONE_WORDS.test(text)) {
+      if (order.items.length === 0) {
+        return "Todavía no has agregado nada. Dime qué quieres ordenar o visita el menú para elegir. 😊";
+      }
+      state.data.order = order;
+      state.status = "ordering_confirm";
+      return (
+        `Perfecto, aquí está tu pedido:\n\n${formatOrderSummary(order.items)}\n\n` +
+        `¿Confirmamos? (sí / no)`
+      );
+    }
+
+    const client = this.menuClient(config);
+    if (!client) {
+      return "Lo siento, el sistema de pedidos no está disponible en este momento. 🙏";
+    }
+
+    let menuItems: MenuItem[];
+    try {
+      menuItems = await client.getMenu();
+    } catch (err) {
+      console.error("[Agent] Failed to load menu from Sheets:", err);
+      return "Tuve un problema cargando el menú. Por favor intenta de nuevo en un momento. 🙏";
+    }
+
+    // Extract items from customer message
+    const extracted = await this.llm.extractOrderItems(state.history.slice(0, -1), text);
+
+    // Handle removal request ("quita el espresso")
+    if (extracted.removeNombre) {
+      const norm = (s: string) =>
+        s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      const target = norm(extracted.removeNombre);
+      const beforeLen = order.items.length;
+      order.items = order.items.filter((i) => !norm(i.nombre).includes(target));
+
+      if (order.items.length < beforeLen) {
+        state.data.order = order;
+        if (order.items.length === 0) {
+          return "Listo, lo quité. Tu pedido está vacío. ¿Qué quieres ordenar? 😊";
+        }
+        return (
+          `Listo, lo eliminé. Hasta ahora:\n\n${formatOrderSummary(order.items)}\n\n` +
+          `¿Algo más o escribe *listo*?`
+        );
+      }
+      return "No encontré ese artículo en tu pedido. ¿Qué quieres quitar?";
+    }
+
+    // Process new items
+    const notFound: string[] = [];
+
+    for (const raw of extracted.items) {
+      const menuItem = client.findByName(raw.nombre, menuItems);
+      if (!menuItem) {
+        notFound.push(raw.nombre);
+        continue;
+      }
+
+      // Validate modifications against what's defined in the sheet
+      const normMod = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      const validExtras = raw.extras.filter((e) =>
+        menuItem.extras.some((me) => normMod(me).includes(normMod(e)) || normMod(e).includes(normMod(me))),
+      );
+      const validSin = raw.sin.filter((s) =>
+        menuItem.sinOpciones.some((ms) => normMod(ms).includes(normMod(s)) || normMod(s).includes(normMod(ms))),
+      );
+
+      // Unknown mods become a kitchen note
+      const unknownExtras = raw.extras.filter((e) => !validExtras.includes(e));
+      const unknownSin   = raw.sin.filter((s) => !validSin.includes(s));
+      const unknownParts = [
+        ...unknownExtras.map((e) => `+ ${e}`),
+        ...unknownSin.map((s)   => `sin ${s}`),
+        raw.nota ?? "",
+      ].filter(Boolean);
+      const nota = unknownParts.length ? `petición especial: ${unknownParts.join(", ")}` : raw.nota;
+
+      // Merge with existing identical item
+      const existing = order.items.find(
+        (i) =>
+          i.nombre === menuItem.nombre &&
+          JSON.stringify(i.extras) === JSON.stringify(validExtras) &&
+          JSON.stringify(i.sin) === JSON.stringify(validSin),
+      );
+      if (existing) {
+        existing.cantidad += raw.cantidad;
+      } else {
+        const newItem: OrderItem = {
+          nombre:   menuItem.nombre,
+          precio:   menuItem.precio,
+          cantidad: raw.cantidad,
+          extras:   validExtras,
+          sin:      validSin,
+          nota,
+        };
+        order.items.push(newItem);
+      }
+    }
+
+    state.data.order = order;
+    state.status = "ordering_items";
+
+    const parts: string[] = [];
+
+    if (extracted.items.length > 0 && extracted.items.length > notFound.length) {
+      parts.push("✅ Anotado.");
+    }
+    if (notFound.length > 0) {
+      const menuUrl = config.menuWebUrl ?? "el menú";
+      parts.push(
+        `No encontré: *${notFound.join(", ")}*. ` +
+        `Verifica en ${menuUrl}`,
+      );
+    }
+
+    if (extracted.isDone && order.items.length > 0) {
+      state.status = "ordering_confirm";
+      return (
+        parts.join("\n") +
+        `\n\nAquí está tu pedido:\n\n${formatOrderSummary(order.items)}\n\n` +
+        `¿Confirmamos? (sí / no)`
+      );
+    }
+
+    if (order.items.length > 0) {
+      parts.push(
+        `\nHasta ahora:\n${formatOrderSummary(order.items)}\n\n` +
+        `¿Algo más? Si terminaste, escribe *listo*.`,
+      );
+    } else if (extracted.items.length === 0) {
+      const menuUrl = config.menuWebUrl ?? "el menú";
+      parts.push(
+        `No pude identificar ningún producto. ` +
+        `Puedes ver el menú en ${menuUrl} y decirme qué quieres. 😊`,
+      );
+    }
+
+    return parts.join("\n") || "¿Qué más te gustaría? 😊";
+  }
+
+  private async handleOrderingConfirm(
+    state: ConversationState,
+    text: string,
+    config: RestaurantConfig,
+  ): Promise<string> {
+    const order = state.data.order ?? { items: [] };
+
+    if (CONFIRM_WORDS.test(text)) {
+      if (order.items.length === 0) {
+        state.status = "greeting";
+        return buildWelcome(config);
+      }
+      const orderId = saveOrder(state);
+      const orderCode = formatOrderId(orderId);
+      state.status = "confirmed";
+      state.data = {};
+
+      return (
+        `¡Listo! 🎉 Tu pedido está registrado en *${config.name}*.\n` +
+        `🔖 Número de pedido: *${orderCode}*\n` +
+        `En breve el equipo lo prepara. ¡Gracias! ☕`
+      );
+    }
+
+    if (CANCEL_WORDS.test(text)) {
+      state.status = "ordering_items";
+      return (
+        `Sin problema. Tu pedido actual:\n\n${formatOrderSummary(order.items)}\n\n` +
+        `¿Qué quieres cambiar o agregar? Si terminaste escribe *listo*.`
+      );
+    }
+
+    // Customer might be correcting the order — try to extract items
+    const client = this.menuClient(config);
+    if (client) {
+      try {
+        const menuItems = await client.getMenu();
+        const extracted = await this.llm.extractOrderItems(state.history.slice(0, -1), text);
+        if (extracted.items.length > 0 || extracted.removeNombre) {
+          state.status = "ordering_items";
+          return await this.handleOrderingItems(state, text, config);
+        }
+      } catch {
+        // ignore and fall through
+      }
+    }
+
+    return (
+      `Tu pedido:\n\n${formatOrderSummary(order.items)}\n\n` +
+      `¿Confirmamos? (sí / no)`
+    );
+  }
+
   private mergeFields(
     state: ConversationState,
     fields: Partial<import("../business/reservation.js").ReservationData>,
@@ -528,17 +749,21 @@ function capitalize(s: string): string {
 }
 
 function buildWelcome(config: RestaurantConfig): string {
+  const hasMenu = Boolean(config.sheetsId);
   return (
     `¡Bienvenido a *${config.name}*! 😊\n\n` +
     `¿En qué puedo ayudarte?\n` +
     `  1️⃣  Hacer una reserva\n` +
-    `  2️⃣  Cancelar una reserva\n\n` +
-    `Escribe *reserva*, *cancelar*, o cuéntame qué necesitas.`
+    `  2️⃣  Cancelar una reserva\n` +
+    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
+    `\nEscribe *reserva*, *cancelar*${hasMenu ? ", *pedido*" : ""} o cuéntame qué necesitas.`
   );
 }
 
 const RESERVATION_INTENT =
   /reserv|mesa|lugar|cupo|cena|comer|cenar|apartar|agendar|quiero\s+ir|visitar|quero\s+ir/i;
+const ORDER_INTENT =
+  /ped(ir|ido)|orden(ar)?|quiero\s+(pedir|comer|tomar|ordenar)|me\s+gustar[íi]a\s+(pedir|ordenar)|qu[eé]\s+tienen|qu[eé]\s+hay|ver\s+el\s+men[uú]/i;
 
 function handleGreeting(
   state: ConversationState,
@@ -550,17 +775,29 @@ function handleGreeting(
     return CANCEL_LOOKUP_PROMPT;
   }
 
+  if (config.sheetsId && (ORDER_INTENT.test(text) || /^3$/.test(text.trim()))) {
+    state.status = "ordering_link";
+    const menuUrl = config.menuWebUrl ?? "";
+    return (
+      `¡Con gusto! Para ver nuestro menú completo con fotos y precios, visita:\n` +
+      `👉 ${menuUrl}\n\n` +
+      `Cuando hayas elegido, dime qué quieres ordenar y lo anoto. 😊`
+    );
+  }
+
   if (RESERVATION_INTENT.test(text) || /^1$/.test(text.trim())) {
     state.status = "collecting";
     return "¡Con gusto! ¿Para qué fecha quieres la reserva? 😊";
   }
 
   // Unrecognized intent — stay in greeting
+  const hasMenu = Boolean(config.sheetsId);
   return (
     `Por el momento puedo ayudarte con:\n` +
     `  1️⃣  Hacer una reserva\n` +
-    `  2️⃣  Cancelar una reserva\n\n` +
-    `¿Cuál necesitas? 😊`
+    `  2️⃣  Cancelar una reserva\n` +
+    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
+    `\n¿Cuál necesitas? 😊`
   );
 }
 

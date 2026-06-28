@@ -10,7 +10,8 @@
     "simulate": "tsx src/channels/cli.ts",
     "simulate:reset": "tsx src/channels/cli.ts --reset",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "setup:menu": "tsx scripts/setup-menu-sheet.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.3",
