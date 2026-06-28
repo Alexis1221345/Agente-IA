@@ -1,0 +1,28 @@
+{
+  "name": "restaurant-agent",
+  "version": "0.1.0",
+  "description": "WhatsApp reservation AI agent for restaurants (multi-tenant)",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "start": "node dist/server/index.js",
+    "build": "tsc",
+    "simulate": "tsx src/channels/cli.ts",
+    "simulate:reset": "tsx src/channels/cli.ts --reset",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.3",
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "googleapis": "^173.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
