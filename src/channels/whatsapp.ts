@@ -40,6 +40,17 @@ export function parseWebhookPayload(body: unknown): IncomingWhatsAppMessage | nu
 }
 
 /**
+ * México móvil: el webhook entrega wa_id como 521XXXXXXXXXX pero la API de envío
+ * espera 52XXXXXXXXXX. Quitamos el '1' intermedio para números mexicanos móviles.
+ */
+function normalizePhoneForSend(phone: string): string {
+  if (phone.startsWith("521") && phone.length === 13) {
+    return "52" + phone.slice(3);
+  }
+  return phone;
+}
+
+/**
  * Sends a text message via Meta Cloud API (WhatsApp Business).
  * Requires META_PHONE_NUMBER_ID and META_ACCESS_TOKEN in environment.
  */
@@ -51,8 +62,7 @@ export async function sendWhatsAppMessage(to: string, text: string): Promise<voi
     throw new Error("Faltan META_PHONE_NUMBER_ID y/o META_ACCESS_TOKEN en .env");
   }
 
-  // Enviamos el número TAL CUAL llega del webhook de Meta, sin modificarlo.
-  // (Meta ya entrega el número en el formato que su propia API espera.)
+  const normalizedTo = normalizePhoneForSend(to);
 
   const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
 
@@ -64,7 +74,7 @@ export async function sendWhatsAppMessage(to: string, text: string): Promise<voi
     },
     body: JSON.stringify({
       messaging_product: "whatsapp",
-      to,
+      to: normalizedTo,
       type: "text",
       text: { body: text },
     }),
