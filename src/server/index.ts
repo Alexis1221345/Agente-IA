@@ -68,4 +68,13 @@ app.listen({ port: PORT, host: "0.0.0.0" }, (err, address) => {
   console.log(`🍽️   Restaurante: ${cfg?.name} (${RESTAURANT_ID})`);
   console.log(`📅  Calendario: ${cfg?.calendarId}`);
   console.log(`📲  Webhook: ${address}/webhook\n`);
+
+  // Render free tier hiberna tras 15 min sin tráfico — ping cada 10 min para mantenerse activo
+  const publicUrl = process.env.RENDER_EXTERNAL_URL;
+  if (publicUrl) {
+    setInterval(() => {
+      fetch(`${publicUrl}/health`).catch(() => {});
+    }, 10 * 60 * 1000);
+    console.log(`⏰  Keep-alive activo → ${publicUrl}/health cada 10 min`);
+  }
 });
