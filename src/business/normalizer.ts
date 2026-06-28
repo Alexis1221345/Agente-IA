@@ -54,15 +54,21 @@ export function normalizeDate(
   if (clean === "pasado mañana" || clean === "pasado manana")
     return base.add(2, "day").format("YYYY-MM-DD");
 
-  // Day names: bare "domingo", "el viernes", "este sábado", "el próximo martes"
+  // Day names: bare "domingo", "el viernes", "este sábado", "el próximo martes",
+  // "el sábado de la siguiente semana", "el sábado de la próxima semana"
   const dayMatch = clean.match(
-    /(?:el\s+|este\s+|el\s+próximo\s+|el\s+proximo\s+)?([a-záéíóúñü]+)$/,
+    /(?:el\s+|este\s+|el\s+(?:próximo|proximo)\s+)?([a-záéíóúñü]+)(?:\s+de\s+la\s+(?:siguiente|próxima|proxima)\s+semana)?$/,
   );
   if (dayMatch) {
     const dayName = dayMatch[1];
     const target = DAYS_ES[dayName];
     if (target !== undefined) {
-      const isNext = clean.includes("próximo") || clean.includes("proximo");
+      const isNext =
+        clean.includes("próximo") ||
+        clean.includes("proximo") ||
+        clean.includes("siguiente") ||
+        clean.includes("próxima") ||
+        clean.includes("proxima");
       let diff = target - base.day();
       if (diff <= 0 || isNext) diff += 7;
       return base.add(diff, "day").format("YYYY-MM-DD");
