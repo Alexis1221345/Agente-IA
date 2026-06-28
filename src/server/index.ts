@@ -42,11 +42,18 @@ app.post("/webhook", async (req, reply) => {
   reply.status(200).send("ok");
 
   const msg = parseWebhookPayload(req.body);
-  if (!msg) return;
+  if (!msg) {
+    app.log.debug("[webhook] Payload ignorado (status update o no-text)");
+    return;
+  }
+
+  console.log(`[webhook] Mensaje de ${msg.from}: "${msg.body}"`);
 
   try {
     const response = await agent.handleMessage(msg.from, msg.body, RESTAURANT_ID);
+    console.log(`[webhook] Respuesta a ${msg.from}: "${response.slice(0, 120)}${response.length > 120 ? "…" : ""}"`);
     await sendWhatsAppMessage(msg.from, response);
+    console.log(`[webhook] Mensaje enviado OK a ${msg.from}`);
   } catch (err) {
     console.error("[webhook] Error procesando mensaje:", err);
   }
