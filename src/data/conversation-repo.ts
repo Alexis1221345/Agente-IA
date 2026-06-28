@@ -101,13 +101,23 @@ export function saveReservation(state: ConversationState, externalId?: string): 
   return Number(result.lastInsertRowid);
 }
 
-/** Cancel reservation by ID and return its Google Calendar event ID if any */
-export function cancelReservationById(id: number): string | null {
+/** Cancel reservation by ID and return its Google Calendar event ID if any.
+ *  restaurantId + phone are required to prevent cross-tenant/cross-user cancellation. */
+export function cancelReservationById(
+  id: number,
+  restaurantId: string,
+  phone: string,
+): string | null {
   const row = db
-    .prepare("SELECT external_id FROM reservations WHERE id = ?")
-    .get(id) as { external_id: string | null } | undefined;
-  db.prepare("UPDATE reservations SET status = 'cancelled' WHERE id = ?").run(id);
-  return row?.external_id ?? null;
+    .prepare(
+      "SELECT external_id FROM reservations WHERE id = ? AND restaurant_id = ? AND phone = ? AND status = 'confirmed'",
+    )
+    .get(id, restaurantId, phone) as { external_id: string | null } | undefined;
+  if (!row) return null;
+  db.prepare(
+    "UPDATE reservations SET status = 'cancelled' WHERE id = ? AND restaurant_id = ? AND phone = ?",
+  ).run(id, restaurantId, phone);
+  return row.external_id ?? null;
 }
 
 export function findReservationById(

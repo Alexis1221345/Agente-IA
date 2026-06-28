@@ -433,7 +433,7 @@ export class ReservationAgent {
     }
 
     if (CONFIRM_WORDS.test(text)) {
-      const externalId = cancelReservationById(target.id);
+      const externalId = cancelReservationById(target.id, config.id, state.phone);
       // Also cancel in Google Calendar if the event ID was stored
       if (externalId) {
         try {
