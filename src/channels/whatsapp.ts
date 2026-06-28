@@ -24,10 +24,15 @@ export function parseWebhookPayload(body: unknown): IncomingWhatsAppMessage | nu
     if (msg.type !== "text") return null;
 
     const text = msg.text as Record<string, unknown>;
+
+    if (typeof msg.from !== "string" || !msg.from.trim()) return null;
+    if (typeof text?.body !== "string" || !text.body.trim()) return null;
+    if (typeof msg.id !== "string") return null;
+
     return {
-      from: msg.from as string,
-      body: text.body as string,
-      messageId: msg.id as string,
+      from: msg.from,
+      body: text.body,
+      messageId: msg.id,
     };
   } catch {
     return null;
