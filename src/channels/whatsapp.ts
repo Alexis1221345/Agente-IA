@@ -46,11 +46,8 @@ export async function sendWhatsAppMessage(to: string, text: string): Promise<voi
     throw new Error("Faltan META_PHONE_NUMBER_ID y/o META_ACCESS_TOKEN en .env");
   }
 
-  // México (y Argentina): WhatsApp envía el número con un "1" extra (521...),
-  // pero la Cloud API espera enviarlo SIN ese 1 (52...). Lo normalizamos aquí.
-  if (/^521\d{10}$/.test(to)) {
-    to = "52" + to.slice(3);
-  }
+  // Enviamos el número TAL CUAL llega del webhook de Meta, sin modificarlo.
+  // (Meta ya entrega el número en el formato que su propia API espera.)
 
   const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
 
