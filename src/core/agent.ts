@@ -114,17 +114,28 @@ export class ReservationAgent {
     // so the user doesn't have to repeat data they already gave (e.g. "quiero
     // reserva para el sábado a las 8").
     if (state.status === "greeting") {
+      // ORDER_INTENT needs async menu load — intercept before the sync handleGreeting
+      if (config.sheetsId && (ORDER_INTENT.test(text) || /^3$/.test(text.trim()))) {
+        state.status = "ordering_ask";
+        return await this.buildOrderingAskMessage(config);
+      }
       const greetingReply = handleGreeting(state, text, config);
       // Read status AFTER the call — handleGreeting may mutate it
       const statusAfterGreeting: string = state.status;
       if (statusAfterGreeting !== "collecting") {
-        return greetingReply; // stayed in greeting, went to cancelling flow, or ordering flow
+        return greetingReply; // stayed in greeting or went to cancelling flow
       }
       // Status is now "collecting" — fall through to extract any fields from this message
       // so the user doesn't need to repeat data they already gave (e.g. date/time)
     }
 
     // Ordering flow
+    if (state.status === "ordering_ask") {
+      return await this.handleOrderingAsk(state, text, config);
+    }
+    if (state.status === "ordering_category") {
+      return await this.handleOrderingCategory(state, text, config);
+    }
     if (state.status === "ordering_link" || state.status === "ordering_items") {
       return await this.handleOrderingItems(state, text, config);
     }
@@ -477,6 +488,127 @@ export class ReservationAgent {
     return getMenuClient(config.googleCredentialsPath, config.sheetsId);
   }
 
+  private async buildOrderingAskMessage(config: RestaurantConfig): Promise<string> {
+    const client = this.menuClient(config);
+    if (!client) {
+      return "Lo siento, el sistema de pedidos no está disponible en este momento. 🙏";
+    }
+    let menuItems: MenuItem[];
+    try {
+      menuItems = await client.getMenu();
+    } catch {
+      return "Tuve un problema cargando el menú. Por favor intenta de nuevo. 🙏";
+    }
+    const categories = uniqueCategories(menuItems);
+    return buildCategoryList(categories);
+  }
+
+  private async handleOrderingAsk(
+    state: ConversationState,
+    text: string,
+    config: RestaurantConfig,
+  ): Promise<string> {
+    const client = this.menuClient(config);
+    if (!client) return "Lo siento, el sistema de pedidos no está disponible. 🙏";
+
+    let menuItems: MenuItem[];
+    try {
+      menuItems = await client.getMenu();
+    } catch {
+      return "Tuve un problema cargando el menú. Por favor intenta de nuevo. 🙏";
+    }
+
+    const categories = uniqueCategories(menuItems);
+
+    // User selected a category number
+    const numMatch = text.trim().match(/^(\d+)$/);
+    if (numMatch) {
+      const idx = parseInt(numMatch[1], 10) - 1;
+      if (idx >= 0 && idx < categories.length) {
+        const cat = categories[idx];
+        state.status = "ordering_category";
+        if (!state.data.order) state.data.order = { items: [] };
+        state.data.order.pendingCategory = cat;
+        const catItems = menuItems.filter((i) => i.categoria === cat);
+        return buildCategoryItemsList(cat, catItems);
+      }
+    }
+
+    // User typed a product name — try to extract it
+    const extracted = await this.llm.extractOrderItems(state.history.slice(0, -1), text);
+    if (extracted.items.length > 0) {
+      state.status = "ordering_items";
+      return await this.handleOrderingItems(state, text, config);
+    }
+
+    // Unrecognized — show categories again
+    return `No entendí tu selección. 😊\n\n${buildCategoryList(categories)}`;
+  }
+
+  private async handleOrderingCategory(
+    state: ConversationState,
+    text: string,
+    config: RestaurantConfig,
+  ): Promise<string> {
+    const client = this.menuClient(config);
+    if (!client) return "Lo siento, el sistema de pedidos no está disponible. 🙏";
+
+    let menuItems: MenuItem[];
+    try {
+      menuItems = await client.getMenu();
+    } catch {
+      return "Tuve un problema cargando el menú. Por favor intenta de nuevo. 🙏";
+    }
+
+    const categories = uniqueCategories(menuItems);
+    const pendingCat = state.data.order?.pendingCategory ?? "";
+    const catItems = menuItems.filter((i) => i.categoria === pendingCat);
+
+    // "categorías" → back to category list
+    if (CATEGORY_NAV.test(text)) {
+      state.status = "ordering_ask";
+      return buildCategoryList(categories);
+    }
+
+    // User selected an item number from the category list
+    const numMatch = text.trim().match(/^(\d+)$/);
+    if (numMatch && catItems.length > 0) {
+      const idx = parseInt(numMatch[1], 10) - 1;
+      if (idx >= 0 && idx < catItems.length) {
+        const chosen = catItems[idx];
+        const order = state.data.order ?? { items: [] };
+
+        // Merge with existing identical item
+        const existing = order.items.find(
+          (i) => i.nombre === chosen.nombre && !i.extras.length && !i.sin.length,
+        );
+        if (existing) {
+          existing.cantidad += 1;
+        } else {
+          order.items.push({
+            nombre: chosen.nombre,
+            precio: chosen.precio,
+            cantidad: 1,
+            extras: [],
+            sin: [],
+          });
+        }
+        state.data.order = order;
+        state.status = "ordering_items";
+        return (
+          `✅ *${chosen.nombre}* agregado. $${chosen.precio}\n\n` +
+          `Tu pedido:\n${formatOrderSummary(order.items)}\n\n` +
+          `¿Algo más? Escribe el nombre, elige otra *categoría* o escribe *listo*. 😊`
+        );
+      }
+      return `Ese número no está en la lista.\n\n${buildCategoryItemsList(pendingCat, catItems)}`;
+    }
+
+    // User typed a product name — fall into items flow
+    state.status = "ordering_items";
+    return await this.handleOrderingItems(state, text, config);
+  }
+
   private async handleOrderingItems(
     state: ConversationState,
     text: string,
@@ -486,6 +618,16 @@ export class ReservationAgent {
       /^\s*(listo|ya|eso\s+es\s+todo|nada\s+m[aá]s|es\s+todo|termin[eé]|ya\s+es\s+todo|ok\s+listo|todo|fin)\s*$/i;
 
     const order = state.data.order ?? { items: [] };
+
+    // "categorías" → show category list (keeps current order in memory)
+    if (CATEGORY_NAV.test(text)) {
+      state.status = "ordering_ask";
+      const msg = await this.buildOrderingAskMessage(config);
+      if (order.items.length > 0) {
+        return `Tu pedido hasta ahora:\n${formatOrderSummary(order.items)}\n\n${msg}`;
+      }
+      return msg;
+    }
 
     if (DONE_WORDS.test(text)) {
       if (order.items.length === 0) {
@@ -764,6 +906,8 @@ const RESERVATION_INTENT =
   /reserv|mesa|lugar|cupo|cena|comer|cenar|apartar|agendar|quiero\s+ir|visitar|quero\s+ir/i;
 const ORDER_INTENT =
   /ped(ir|ido)|orden(ar)?|quiero\s+(pedir|comer|tomar|ordenar)|me\s+gustar[íi]a\s+(pedir|ordenar)|qu[eé]\s+tienen|qu[eé]\s+hay|ver\s+el\s+men[uú]/i;
+const CATEGORY_NAV =
+  /^\s*(categ[oó]r[íi]?as?|ver\s+categ[oó]r[íi]?as?|men[uú]|opciones|volver|regresar)\s*$/i;
 
 function handleGreeting(
   state: ConversationState,
@@ -773,16 +917,6 @@ function handleGreeting(
   if (CANCELLATION_INTENT.test(text) || /^2$/.test(text.trim())) {
     state.status = "cancelling_lookup";
     return CANCEL_LOOKUP_PROMPT;
-  }
-
-  if (config.sheetsId && (ORDER_INTENT.test(text) || /^3$/.test(text.trim()))) {
-    state.status = "ordering_link";
-    const menuUrl = config.menuWebUrl ?? "";
-    return (
-      `¡Con gusto! Para ver nuestro menú completo con fotos y precios, visita:\n` +
-      `👉 ${menuUrl}\n\n` +
-      `Cuando hayas elegido, dime qué quieres ordenar y lo anoto. 😊`
-    );
   }
 
   if (RESERVATION_INTENT.test(text) || /^1$/.test(text.trim())) {
@@ -851,4 +985,44 @@ function formatOpenDays(config: RestaurantConfig): string {
       return `  • *${DAYS_ES[day]}*: ${s!.open} – ${s!.close} (última reserva ${lastSlot})`;
     })
     .join("\n");
+}
+
+function uniqueCategories(items: MenuItem[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of items) {
+    if (item.categoria && !seen.has(item.categoria)) {
+      seen.add(item.categoria);
+      result.push(item.categoria);
+    }
+  }
+  return result;
+}
+
+function buildCategoryList(categories: string[]): string {
+  const NUM_EMOJI = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"];
+  const list = categories
+    .map((c, i) => `  ${NUM_EMOJI[i] ?? `${i + 1}.`}  ${c}`)
+    .join("\n");
+  return (
+    `¡Con gusto! ¿Ya sabes qué quieres ordenar?\n\n` +
+    `Escribe el *nombre del producto* directamente, o elige una categoría:\n\n` +
+    list +
+    `\n\n_(Escribe el número de la categoría o el nombre del producto)_`
+  );
+}
+
+function buildCategoryItemsList(categoria: string, items: MenuItem[]): string {
+  if (items.length === 0) {
+    return `No hay productos disponibles en *${categoria}* en este momento. 🙏`;
+  }
+  const list = items.map((item, i) => {
+    const extras = item.extras.length ? ` _(extras: ${item.extras.join(", ")})_` : "";
+    return `  ${i + 1}. *${item.nombre}* — $${item.precio}${extras}`;
+  }).join("\n");
+  return (
+    `*${categoria}* 🍽️\n\n${list}\n\n` +
+    `Escribe el *número* o el *nombre* del producto.\n` +
+    `Para ver otras categorías escribe *categorías*. 😊`
+  );
 }

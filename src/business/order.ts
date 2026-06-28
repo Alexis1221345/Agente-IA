@@ -9,6 +9,7 @@ export interface OrderItem {
 
 export interface OrderData {
   items: OrderItem[];
+  pendingCategory?: string; // category currently being browsed
 }
 
 export function orderTotal(items: OrderItem[]): number {

@@ -9,7 +9,9 @@ export type ReservationStatus =
   | "cancelled"           // reservation cancelled
   | "cancelling_lookup"   // waiting for ID or name+date to find reservation
   | "cancelling_confirm"  // found reservation, waiting for cancel confirmation
-  | "ordering_link"       // sent menu link, waiting for first item
+  | "ordering_ask"        // showed category list, waiting for name or category number
+  | "ordering_category"   // showed items of a specific category, waiting for selection
+  | "ordering_link"       // legacy: sent menu link (kept for in-flight conversations)
   | "ordering_items"      // collecting order items
   | "ordering_confirm";   // showing order summary, waiting for confirmation
 
