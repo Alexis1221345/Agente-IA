@@ -500,7 +500,7 @@ export class ReservationAgent {
       return "Tuve un problema cargando el menú. Por favor intenta de nuevo. 🙏";
     }
     const categories = uniqueCategories(menuItems);
-    return buildCategoryList(categories);
+    return buildCategoryList(categories, config.menuWebUrl);
   }
 
   private async handleOrderingAsk(
@@ -542,7 +542,7 @@ export class ReservationAgent {
     }
 
     // Unrecognized — show categories again
-    return `No entendí tu selección. 😊\n\n${buildCategoryList(categories)}`;
+    return `No entendí tu selección. 😊\n\n${buildCategoryList(categories, config.menuWebUrl)}`;
   }
 
   private async handleOrderingCategory(
@@ -567,7 +567,7 @@ export class ReservationAgent {
     // "categorías" → back to category list
     if (CATEGORY_NAV.test(text)) {
       state.status = "ordering_ask";
-      return buildCategoryList(categories);
+      return buildCategoryList(categories, config.menuWebUrl);
     }
 
     // User selected an item number from the category list
@@ -999,14 +999,18 @@ function uniqueCategories(items: MenuItem[]): string[] {
   return result;
 }
 
-function buildCategoryList(categories: string[]): string {
+function buildCategoryList(categories: string[], menuWebUrl?: string): string {
   const NUM_EMOJI = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"];
   const list = categories
     .map((c, i) => `  ${NUM_EMOJI[i] ?? `${i + 1}.`}  ${c}`)
     .join("\n");
+  const menuLink = menuWebUrl
+    ? `📋 También puedes ver el menú completo aquí:\n${menuWebUrl}\n\n`
+    : "";
   return (
-    `¡Con gusto! ¿Ya sabes qué quieres ordenar?\n\n` +
-    `Escribe el *nombre del producto* directamente, o elige una categoría:\n\n` +
+    `¡Con gusto! 😊\n\n` +
+    menuLink +
+    `O elige una categoría para ordenar:\n\n` +
     list +
     `\n\n_(Escribe el número de la categoría o el nombre del producto)_`
   );
