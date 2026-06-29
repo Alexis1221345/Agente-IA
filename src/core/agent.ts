@@ -23,6 +23,8 @@ import {
 } from "../data/conversation-repo.js";
 import { normalizeDate, normalizeTime } from "../business/normalizer.js";
 import { nextAction, buildSummary, formatTimeDisplay } from "./gap-filler.js";
+import { buildSystemPrompt } from "./prompts.js";
+import { isQuestion } from "./qa-helpers.js";
 import { type OrderItem, formatOrderSummary, orderTotal } from "../business/order.js";
 
 dayjs.extend(utc);
@@ -127,19 +129,22 @@ export class ReservationAgent {
     // so the user doesn't have to repeat data they already gave (e.g. "quiero
     // reserva para el sábado a las 8").
     if (state.status === "greeting") {
-      // ORDER_INTENT needs async menu load — intercept before the sync handleGreeting
+      // ORDER_INTENT needs async menu load — check first
       if (config.sheetsId && (ORDER_INTENT.test(text) || /^3$/.test(text.trim()))) {
         state.status = "ordering_ask";
         return await this.buildOrderingAskMessage(config);
       }
-      const greetingReply = handleGreeting(state, text, config);
-      // Read status AFTER the call — handleGreeting may mutate it
-      const statusAfterGreeting: string = state.status;
-      if (statusAfterGreeting !== "collecting") {
-        return greetingReply; // stayed in greeting or went to cancelling flow
+      if (CANCELLATION_INTENT.test(text) || /^2$/.test(text.trim())) {
+        state.status = "cancelling_lookup";
+        return CANCEL_LOOKUP_PROMPT;
       }
-      // Status is now "collecting" — fall through to extract any fields from this message
-      // so the user doesn't need to repeat data they already gave (e.g. date/time)
+      if (RESERVATION_INTENT.test(text) || /^1$/.test(text.trim())) {
+        state.status = "collecting";
+        // Fall through to field extraction — any data already given gets extracted
+      } else {
+        // Unknown intent: answer as Q&A without changing status
+        return await this.answerQuestion(state, text, config);
+      }
     }
 
     // Ordering flow
@@ -184,6 +189,15 @@ export class ReservationAgent {
     ) {
       state.data.peticiones = "";
     }
+
+    // Snapshot before extraction — used below to detect if this message adds new data
+    const snapFields = {
+      fecha: state.data.fecha,
+      hora: state.data.hora,
+      personas: state.data.personas,
+      nombre: state.data.nombre,
+      peticiones: state.data.peticiones,
+    };
 
     // Extract fields from user message
     const { fields, raw } = await this.llm.extractFields(
@@ -252,6 +266,17 @@ export class ReservationAgent {
     }
 
     if (action.type === "ask") {
+      // If no new field was captured AND the message looks like a question,
+      // answer it with AI and then re-ask the pending field.
+      const newFieldAdded =
+        state.data.fecha    !== snapFields.fecha    ||
+        state.data.hora     !== snapFields.hora     ||
+        state.data.personas !== snapFields.personas ||
+        state.data.nombre   !== snapFields.nombre   ||
+        state.data.peticiones !== snapFields.peticiones;
+      if (!newFieldAdded && isQuestion(text)) {
+        return await this.answerQuestion(state, text, config, action.question);
+      }
       return action.question;
     }
 
@@ -831,6 +856,41 @@ export class ReservationAgent {
     );
   }
 
+  private async answerQuestion(
+    state: ConversationState,
+    text: string,
+    config: RestaurantConfig,
+    pendingQuestion?: string,
+  ): Promise<string> {
+    // Load menu as additional context when available
+    let menuText: string | undefined;
+    if (config.sheetsId) {
+      try {
+        const client = this.menuClient(config);
+        if (client) {
+          const items = await client.getMenu();
+          if (items.length > 0) {
+            menuText = items
+              .map((i) => `${i.categoria} — ${i.nombre}: $${i.precio}`)
+              .join("\n");
+          }
+        }
+      } catch {
+        // proceed without menu context
+      }
+    }
+
+    const systemPrompt = buildSystemPrompt(config, menuText);
+    let reply = await this.llm.generateReply(systemPrompt, state.history.slice(0, -1), text);
+
+    // Re-attach the pending field question so the conversation doesn't stall
+    if (pendingQuestion) {
+      reply = reply.trimEnd() + `\n\n${pendingQuestion}`;
+    }
+
+    return reply;
+  }
+
   private mergeFields(
     state: ConversationState,
     fields: Partial<import("../business/reservation.js").ReservationData>,
@@ -973,31 +1033,6 @@ const ORDER_INTENT =
 const CATEGORY_NAV =
   /^\s*(categ[oó]r[íi]?as?|ver\s+categ[oó]r[íi]?as?|men[uú]|opciones|volver|regresar)\s*$/i;
 
-function handleGreeting(
-  state: ConversationState,
-  text: string,
-  config: RestaurantConfig,
-): string {
-  if (CANCELLATION_INTENT.test(text) || /^2$/.test(text.trim())) {
-    state.status = "cancelling_lookup";
-    return CANCEL_LOOKUP_PROMPT;
-  }
-
-  if (RESERVATION_INTENT.test(text) || /^1$/.test(text.trim())) {
-    state.status = "collecting";
-    return "¡Con gusto te aparto lugar! ¿Para qué día lo quieres?";
-  }
-
-  // Unrecognized intent — stay in greeting
-  const hasMenu = Boolean(config.sheetsId);
-  return (
-    `Con gusto te ayudo. ¿Qué necesitas?\n\n` +
-    `  1️⃣  Hacer una reserva\n` +
-    `  2️⃣  Cancelar una reserva\n` +
-    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
-    `\nEscríbeme el número o dime con tus palabras.`
-  );
-}
 
 function cancelSummary(r: ReservationRecord): string {
   return (
