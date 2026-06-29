@@ -271,10 +271,9 @@ export class ReservationAgent {
       if (!daySchedule) {
         state.data.fecha = undefined;
         return (
-          `Lo siento, los *${dowES}* estamos cerrados. 🚫\n\n` +
-          `Nuestros días y horarios disponibles son:\n` +
+          `Ay, los *${dowES}* no abrimos. Estos son los días que sí puedo apartarte:\n\n` +
           formatOpenDays(config) +
-          `\n\n¿Para qué día te gustaría hacer la reserva?`
+          `\n\n¿Para cuál de esos te acomoda?`
         );
       }
 
@@ -293,11 +292,9 @@ export class ReservationAgent {
         const lastSlotStr = minutesToHHMM(lastSlotMin);
         const suggestions = suggestSlots(openMin, lastSlotMin);
         return (
-          `Ese horario está fuera de nuestro servicio los *${dowES}*. ⏰\n\n` +
-          `🕐 Horario de atención: *${daySchedule.open}* a *${daySchedule.close}*\n` +
-          `📌 Última reserva disponible: *${lastSlotStr}*\n\n` +
-          `Algunos horarios disponibles: ${suggestions.join(", ")}\n\n` +
-          `¿A qué hora te gustaría llegar?`
+          `Ese horario se nos va un poco los *${dowES}* — atendemos de *${daySchedule.open}* a *${daySchedule.close}* y la última reserva es a las *${lastSlotStr}*.\n\n` +
+          `Algunos que sí están disponibles: ${suggestions.join(", ")}\n\n` +
+          `¿Te late alguno de esos?`
         );
       }
 
@@ -323,21 +320,20 @@ export class ReservationAgent {
         state.data.hora = undefined;
         const suggestions = suggestSlots(openMin, lastSlotMin);
         return (
-          `Lo siento, las *${horaRequested}* ya no tiene lugares ` +
-          `para ${state.data.personas} personas. 😔\n\n` +
-          `Algunos horarios que aún podrían tener disponibilidad: ${suggestions.join(", ")}\n\n` +
-          `¿Te funciona alguno de esos o prefieres otro?`
+          `Mmm, a las *${horaRequested}* ya está algo lleno para ${state.data.personas} personas. 😔\n\n` +
+          `Otros que podrían estar libres: ${suggestions.join(", ")}\n\n` +
+          `¿Alguno de esos te viene?`
         );
       }
 
-      return "¿A nombre de quién hacemos la reserva?";
+      return "¡Listo, sí tenemos lugar! ¿A nombre de quién la dejo?";
     }
 
     if (action.type === "confirm") {
       // Ask for peticiones first (separate turn), then show summary
       if (state.data.peticiones === undefined && !hasMentionedPeticiones(state.history)) {
         state.status = "collecting";
-        return "¿Tienes alguna petición especial? (ocasión, alergias, silla para bebé, etc.) Si no, escribe *ninguna*.";
+        return `¿Algo que deba saber para recibirte mejor, ${state.data.nombre}? Un cumpleaños, una alergia, un lugar tranquilo… o si todo está bien, también me dices y listo.`;
       }
       state.status = "confirming";
       return action.summary;
@@ -377,11 +373,10 @@ export class ReservationAgent {
       state.status = "confirmed";
 
       return (
-        `¡Listo, ${state.data.nombre}! 🎉 Tu reserva en *${config.name}* está confirmada.\n` +
-        `📅 ${formatDateNice(state.data.fecha!)} a las ${state.data.hora} para ${state.data.personas} personas.\n` +
-        `🔖 Tu número de reserva: *${resCode}*\n` +
-        `${config.cancellationPolicy}\n` +
-        `¡Te esperamos! 😊`
+        `¡Quedó, ${state.data.nombre}! Te esperamos el ${formatDateNice(state.data.fecha!)} a las ${state.data.hora}, mesa para ${state.data.personas}.\n` +
+        `Tu folio por si lo necesitas: *${resCode}*\n` +
+        `${config.cancellationPolicy}\n\n` +
+        `Cualquier cosa, escríbeme con confianza ☕`
       );
     }
 
@@ -419,7 +414,7 @@ export class ReservationAgent {
       if (found) {
         state.data = { ...state.data, _cancelTarget: found } as typeof state.data & { _cancelTarget: ReservationRecord };
         state.status = "cancelling_confirm";
-        return cancelSummary(found) + "\n\n¿Confirmas la cancelación? (sí / no)";
+        return cancelSummary(found) + "\n\n¿Confirmamos la cancelación?";
       }
       return `No encontré una reserva con el número *${formatResId(resId)}*.\n¿Me das tu nombre y la fecha? (dd/mm/año)`;
     }
@@ -444,7 +439,7 @@ export class ReservationAgent {
         const found = results[0];
         (state.data as Record<string, unknown>)._cancelTarget = found;
         state.status = "cancelling_confirm";
-        return cancelSummary(found) + "\n\n¿Confirmas la cancelación? (sí / no)";
+        return cancelSummary(found) + "\n\n¿Confirmamos la cancelación?";
       }
       if (results.length > 1) {
         // Multiple matches — ask for the ID to be precise
@@ -493,7 +488,7 @@ export class ReservationAgent {
       return "Sin problema, tu reserva sigue activa. ¿Hay algo más en lo que pueda ayudarte? 😊";
     }
 
-    return `¿Confirmas la cancelación de la reserva *${formatResId(target.id)}*? (sí / no)`;
+    return `¿Confirmamos la cancelación de la reserva *${formatResId(target.id)}*?`;
   }
 
   private menuClient(config: RestaurantConfig) {
@@ -650,7 +645,7 @@ export class ReservationAgent {
       state.status = "ordering_confirm";
       return (
         `Perfecto, aquí está tu pedido:\n\n${formatOrderSummary(order.items)}\n\n` +
-        `¿Confirmamos? (sí / no)`
+        `¿Lo confirmamos así?`
       );
     }
 
@@ -763,7 +758,7 @@ export class ReservationAgent {
       return (
         parts.join("\n") +
         `\n\nAquí está tu pedido:\n\n${formatOrderSummary(order.items)}\n\n` +
-        `¿Confirmamos? (sí / no)`
+        `¿Lo confirmamos así?`
       );
     }
 
@@ -832,7 +827,7 @@ export class ReservationAgent {
 
     return (
       `Tu pedido:\n\n${formatOrderSummary(order.items)}\n\n` +
-      `¿Confirmamos? (sí / no)`
+      `¿Lo confirmamos así?`
     );
   }
 
@@ -877,8 +872,8 @@ function hasMentionedPeticiones(
 
 function escalationMessage(config: RestaurantConfig, reason: string): string {
   return (
-    `Para este tipo de solicitud (${reason}) prefiero conectarte con nuestro equipo directamente.\n` +
-    `Por favor contáctalos en ${config.humanPhone}. ¡Muchas gracias! 🙏`
+    `Para ${reason} te conviene hablar directamente con el equipo — te van a atender de maravilla.\n` +
+    `Escríbeles al ${config.humanPhone} y cuéntales lo que necesitas. ¡Muchas gracias! 🙏`
   );
 }
 
@@ -906,12 +901,11 @@ function capitalize(s: string): string {
 function buildWelcome(config: RestaurantConfig): string {
   const hasMenu = Boolean(config.sheetsId);
   return (
-    `¡Bienvenido a *${config.name}*! 😊\n\n` +
-    `¿En qué puedo ayudarte?\n` +
+    `¡Hola! Qué gusto saludarte desde *${config.name}* ☕\n\n` +
+    `¿Te late apartar una mesa${hasMenu ? ", ver algo del menú" : ""} o tienes alguna duda? Cuéntame y te ayudo.\n\n` +
     `  1️⃣  Hacer una reserva\n` +
     `  2️⃣  Cancelar una reserva\n` +
-    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
-    `\nEscribe *reserva*, *cancelar*${hasMenu ? ", *pedido*" : ""} o cuéntame qué necesitas.`
+    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "")
   );
 }
 
@@ -991,17 +985,17 @@ function handleGreeting(
 
   if (RESERVATION_INTENT.test(text) || /^1$/.test(text.trim())) {
     state.status = "collecting";
-    return "¡Con gusto! ¿Para qué fecha quieres la reserva? 😊";
+    return "¡Con gusto te aparto lugar! ¿Para qué día lo quieres?";
   }
 
   // Unrecognized intent — stay in greeting
   const hasMenu = Boolean(config.sheetsId);
   return (
-    `Por el momento puedo ayudarte con:\n` +
+    `Con gusto te ayudo. ¿Qué necesitas?\n\n` +
     `  1️⃣  Hacer una reserva\n` +
     `  2️⃣  Cancelar una reserva\n` +
     (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
-    `\n¿Cuál necesitas? 😊`
+    `\nEscríbeme el número o dime con tus palabras.`
   );
 }
 

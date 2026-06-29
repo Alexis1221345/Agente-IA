@@ -27,7 +27,7 @@ export function nextAction(
     return {
       type: "ask",
       field: "fecha",
-      question: "¿Para qué fecha quieres la reserva? 😊",
+      question: "¡Con gusto! ¿Para qué día lo quieres?",
     };
   }
 
@@ -35,7 +35,7 @@ export function nextAction(
     return {
       type: "ask",
       field: "hora",
-      question: "¿A qué hora te gustaría llegar?",
+      question: "¡Va! ¿Y como a qué hora se te antoja llegar?",
     };
   }
 
@@ -43,7 +43,7 @@ export function nextAction(
     return {
       type: "ask",
       field: "personas",
-      question: "¿Cuántas personas van a venir?",
+      question: "Perfecto. ¿Para cuántas personas preparo el lugar?",
     };
   }
 
@@ -62,14 +62,13 @@ export function nextAction(
 
 export function buildSummary(data: ReservationData, config: RestaurantConfig): string {
   const lines = [
-    `*Resumen de tu reserva en ${config.name}:*`,
-    `📅 Fecha: ${formatDate(data.fecha!)}`,
-    `🕐 Hora: ${data.hora}`,
-    `👥 Personas: ${data.personas}`,
-    `👤 Nombre: ${data.nombre}`,
+    `Listo, te lo anoto así:`,
+    ``,
+    `📅 ${formatDate(data.fecha!)} a las ${data.hora}`,
+    `👥 ${data.personas} personas — *${data.nombre}*`,
   ];
-  if (data.peticiones) lines.push(`📝 Peticiones especiales: ${data.peticiones}`);
-  lines.push("", "¿Confirmo tu reserva? (sí / no)");
+  if (data.peticiones) lines.push(`✨ ${data.peticiones}`);
+  lines.push("", "¿Te la dejo así o ajustamos algo?");
   return lines.join("\n");
 }
 
