@@ -22,7 +22,7 @@ import {
   type ReservationRecord,
 } from "../data/conversation-repo.js";
 import { normalizeDate, normalizeTime } from "../business/normalizer.js";
-import { nextAction, buildSummary } from "./gap-filler.js";
+import { nextAction, buildSummary, formatTimeDisplay } from "./gap-filler.js";
 import { type OrderItem, formatOrderSummary, orderTotal } from "../business/order.js";
 
 dayjs.extend(utc);
@@ -320,7 +320,7 @@ export class ReservationAgent {
         state.data.hora = undefined;
         const suggestions = suggestSlots(openMin, lastSlotMin);
         return (
-          `Mmm, a las *${horaRequested}* ya está algo lleno para ${state.data.personas} personas. 😔\n\n` +
+          `Mmm, a las *${formatTimeDisplay(horaRequested)}* ya está algo lleno para ${state.data.personas} personas. 😔\n\n` +
           `Otros que podrían estar libres: ${suggestions.join(", ")}\n\n` +
           `¿Alguno de esos te viene?`
         );
@@ -373,7 +373,7 @@ export class ReservationAgent {
       state.status = "confirmed";
 
       return (
-        `¡Quedó, ${state.data.nombre}! Te esperamos el ${formatDateNice(state.data.fecha!)} a las ${state.data.hora}, mesa para ${state.data.personas}.\n` +
+        `¡Quedó, ${state.data.nombre}! Te esperamos el ${formatDateNice(state.data.fecha!)} a las *${formatTimeDisplay(state.data.hora!)}*, mesa para ${state.data.personas}.\n` +
         `Tu folio por si lo necesitas: *${resCode}*\n` +
         `${config.cancellationPolicy}\n\n` +
         `Cualquier cosa, escríbeme con confianza ☕`

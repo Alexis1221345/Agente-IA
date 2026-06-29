@@ -64,12 +64,19 @@ export function buildSummary(data: ReservationData, config: RestaurantConfig): s
   const lines = [
     `Listo, te lo anoto así:`,
     ``,
-    `📅 ${formatDate(data.fecha!)} a las ${data.hora}`,
+    `📅 ${formatDate(data.fecha!)} a las *${formatTimeDisplay(data.hora!)}*`,
     `👥 ${data.personas} personas — *${data.nombre}*`,
   ];
   if (data.peticiones) lines.push(`✨ ${data.peticiones}`);
   lines.push("", "¿Te la dejo así o ajustamos algo?");
   return lines.join("\n");
+}
+
+export function formatTimeDisplay(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h < 12 ? "AM" : "PM";
+  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${displayH}:${String(m).padStart(2, "0")} ${period}`;
 }
 
 function formatDate(iso: string): string {

@@ -60,7 +60,7 @@ describe("nextAction — gap filling", () => {
     expect(action.type).toBe("confirm");
     if (action.type === "confirm") {
       expect(action.summary).toContain("Sofía");
-      expect(action.summary).toContain("20:00");
+      expect(action.summary).toContain("8:00 PM");
       expect(action.summary).toContain("4");
       expect(action.summary).toContain("mesa junto a la ventana");
     }
