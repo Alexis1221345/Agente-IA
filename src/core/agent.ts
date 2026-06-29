@@ -101,12 +101,25 @@ export class ReservationAgent {
     text: string,
     config: RestaurantConfig,
   ): Promise<string> {
+    // ── Comando global: R / r / 0 → volver al menú principal ────────────────
+    if (RESET_CMD.test(text) && state.status !== "greeting") {
+      state.status = "greeting";
+      state.data = {};
+      state.history = [{ role: "user", content: text }];
+      return buildWelcome(config);
+    }
+
     // After confirmed/escalated, reset and re-greet
     if (state.status === "confirmed" || state.status === "escalated") {
       state.status = "greeting";
       state.data = {};
       state.history = [{ role: "user", content: text }];
       return buildWelcome(config);
+    }
+
+    // ── Saludo mid-flujo: recordar contexto en lugar de ignorar ─────────────
+    if (GREETING_WORDS.test(text) && state.status !== "greeting") {
+      return buildContextReminder(state, config);
     }
 
     // Greeting → detect intent before starting collection.
@@ -900,6 +913,63 @@ function buildWelcome(config: RestaurantConfig): string {
     (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
     `\nEscribe *reserva*, *cancelar*${hasMenu ? ", *pedido*" : ""} o cuéntame qué necesitas.`
   );
+}
+
+// ── Comandos globales de navegación ─────────────────────────────────────────
+const RESET_CMD =
+  /^\s*(r|0|regresar|regresa|volver|inicio|menú|menu|reiniciar|restart)\s*$/i;
+
+const GREETING_WORDS =
+  /^\s*(hola|buenos\s+d[íi]as|buenas\s+tardes|buenas\s+noches|buenas|hey|hi|hello|qué\s+tal|que\s+tal|buen[ao]s)\s*[!¡.]*\s*$/i;
+
+function buildContextReminder(
+  state: ConversationState,
+  config: RestaurantConfig,
+): string {
+  const back = `\n\nEscribe *R* o *0* para volver al menú principal.`;
+
+  switch (state.status) {
+    case "collecting":
+    case "confirming": {
+      const d = state.data;
+      const parts: string[] = ["¡Hola de nuevo! 👋 Tenemos una *reserva en proceso*:"];
+      if (d.fecha)    parts.push(`📅 Fecha: ${d.fecha}`);
+      if (d.hora)     parts.push(`🕐 Hora: ${d.hora}`);
+      if (d.personas) parts.push(`👥 Personas: ${d.personas}`);
+      if (d.nombre)   parts.push(`👤 Nombre: ${d.nombre}`);
+      parts.push(`\n¿Continuamos? Escribe el dato que falta o dime si cambias algo.`);
+      return parts.join("\n") + back;
+    }
+    case "ordering_ask":
+    case "ordering_category":
+    case "ordering_items":
+    case "ordering_link":
+    case "ordering_confirm": {
+      const items = state.data.order?.items ?? [];
+      if (items.length > 0) {
+        return (
+          `¡Hola de nuevo! 👋 Tenemos un *pedido en proceso*:\n\n` +
+          formatOrderSummary(items) +
+          `\n\n¿Seguimos? Agrega más productos, escribe *listo* para confirmar,` +
+          back
+        );
+      }
+      return (
+        `¡Hola de nuevo! 👋 Estábamos eligiendo productos para tu pedido.\n` +
+        `¿Continuamos? Dime qué quieres ordenar.` +
+        back
+      );
+    }
+    case "cancelling_lookup":
+    case "cancelling_confirm":
+      return (
+        `¡Hola de nuevo! 👋 Estábamos procesando una *cancelación de reserva*.\n` +
+        `¿Deseas continuar? Dime tu número de reserva o nombre y fecha.` +
+        back
+      );
+    default:
+      return buildWelcome(config);
+  }
 }
 
 const RESERVATION_INTENT =
