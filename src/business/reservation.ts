@@ -13,7 +13,8 @@ export type ReservationStatus =
   | "ordering_category"   // showed items of a specific category, waiting for selection
   | "ordering_link"       // legacy: sent menu link (kept for in-flight conversations)
   | "ordering_items"      // collecting order items
-  | "ordering_confirm";   // showing order summary, waiting for confirmation
+  | "ordering_confirm"    // showing order summary, waiting for confirmation
+  | "ordering_web_name";  // web order received, waiting for customer name
 
 export interface ReservationData {
   fecha?: string;      // YYYY-MM-DD

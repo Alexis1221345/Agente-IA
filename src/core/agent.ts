@@ -103,6 +103,11 @@ export class ReservationAgent {
     text: string,
     config: RestaurantConfig,
   ): Promise<string> {
+    // ── Pedido web enviado desde pedido.html ─────────────────────────────────
+    if (text.startsWith("PEDIDO_WEB:")) {
+      return await this.handleWebOrder(state, text, config);
+    }
+
     // ── Comando global: R / r / 0 → volver al menú principal ────────────────
     if (RESET_CMD.test(text) && state.status !== "greeting") {
       state.status = "greeting";
@@ -148,6 +153,9 @@ export class ReservationAgent {
     }
 
     // Ordering flow
+    if (state.status === "ordering_web_name") {
+      return this.handleWebOrderName(state, text, config);
+    }
     if (state.status === "ordering_ask") {
       return await this.handleOrderingAsk(state, text, config);
     }
@@ -514,6 +522,54 @@ export class ReservationAgent {
     }
 
     return `¿Confirmamos la cancelación de la reserva *${formatResId(target.id)}*?`;
+  }
+
+  private async handleWebOrder(
+    state: ConversationState,
+    text: string,
+    config: RestaurantConfig,
+  ): Promise<string> {
+    try {
+      const json = text.slice("PEDIDO_WEB:".length).trim();
+      const parsed = JSON.parse(json) as { items: OrderItem[] };
+      if (!parsed.items || !Array.isArray(parsed.items) || parsed.items.length === 0) {
+        throw new Error("empty order");
+      }
+      state.data.order = { items: parsed.items };
+      state.status = "ordering_web_name";
+      return (
+        `🛒 ¡Recibí tu pedido de *${config.name}*!\n\n` +
+        formatOrderSummary(parsed.items) +
+        `\n\n¿A nombre de quién quedamos? 😊`
+      );
+    } catch {
+      state.status = "greeting";
+      return (
+        `¡Hola! Recibí un mensaje desde la página, pero tuve un pequeño problema al leerlo.\n` +
+        `¿Me dices qué quieres pedir y con gusto te ayudo? 😊`
+      );
+    }
+  }
+
+  private handleWebOrderName(
+    state: ConversationState,
+    text: string,
+    config: RestaurantConfig,
+  ): string {
+    const nombre = text.trim();
+    if (!nombre || nombre.length < 2) {
+      return "¿A nombre de quién queda el pedido? 😊";
+    }
+    const order = state.data.order ?? { items: [] };
+    state.data.nombre = nombre;
+    const pickup = dayjs().tz(config.timezone).add(30, "minute").format("HH:mm");
+    state.status = "ordering_confirm";
+    return (
+      `¡Perfecto, *${nombre}*! Aquí tu pedido:\n\n` +
+      formatOrderSummary(order.items) +
+      `\n\n⏰ Tiempo estimado: listo para las *${pickup}* aprox.\n\n` +
+      `¿Confirmamos? (sí / no)`
+    );
   }
 
   private menuClient(config: RestaurantConfig) {
@@ -998,7 +1054,8 @@ function buildContextReminder(
     case "ordering_category":
     case "ordering_items":
     case "ordering_link":
-    case "ordering_confirm": {
+    case "ordering_confirm":
+    case "ordering_web_name": {
       const items = state.data.order?.items ?? [];
       if (items.length > 0) {
         return (
