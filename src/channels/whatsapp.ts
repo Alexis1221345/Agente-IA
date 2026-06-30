@@ -40,6 +40,33 @@ export function parseWebhookPayload(body: unknown): IncomingWhatsAppMessage | nu
 }
 
 /**
+ * Returns the sender's phone number if the webhook payload contains a non-text
+ * media message (image, audio, video, sticker, document, location).
+ * Returns null for text messages, status updates, read receipts, etc.
+ */
+export function parseWebhookMediaSender(body: unknown): string | null {
+  try {
+    const payload = body as Record<string, unknown>;
+    if (payload.object !== "whatsapp_business_account") return null;
+
+    const entry = (payload.entry as Record<string, unknown>[])?.[0];
+    const change = (entry?.changes as Record<string, unknown>[])?.[0];
+    const value = change?.value as Record<string, unknown>;
+    const messages = value?.messages as Record<string, unknown>[] | undefined;
+
+    if (!messages?.length) return null;
+
+    const msg = messages[0];
+    const MEDIA_TYPES = ["image", "audio", "video", "sticker", "document", "location"];
+    if (!MEDIA_TYPES.includes(msg.type as string)) return null;
+
+    return typeof msg.from === "string" && msg.from.trim() ? msg.from : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * México móvil: el webhook entrega wa_id como 521XXXXXXXXXX pero la API de envío
  * espera 52XXXXXXXXXX. Quitamos el '1' intermedio para números mexicanos móviles.
  */

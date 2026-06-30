@@ -32,9 +32,11 @@ export function formatResId(id: number): string {
   return `#RES-${String(id).padStart(4, "0")}`;
 }
 
-/** Parse "#RES-0042" or "RES-42" or "42" → numeric id, or null */
+/** Parse "#RES-0042" or "RES-42" or "42" → numeric id, or null.
+ *  Only matches when the FULL trimmed text is a reservation code or bare number
+ *  to avoid false positives like "el 25 de julio" extracting 25. */
 export function parseResId(text: string): number | null {
-  const m = text.trim().match(/(?:#?RES-)?(\d+)/i);
+  const m = text.trim().match(/^#?(?:RES-)?(\d+)$/i);
   if (!m) return null;
   const n = parseInt(m[1], 10);
   return isNaN(n) ? null : n;

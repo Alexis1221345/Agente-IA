@@ -77,7 +77,7 @@ export class ClaudeLLMClient implements ILLMClient {
       system:
         "You are a field extractor for a restaurant reservation system. Use the provided tool to extract ONLY fields explicitly stated by the customer. Never invent data.",
       tools: [EXTRACT_TOOL],
-      tool_choice: { type: "auto" },
+      tool_choice: { type: "any" },
       messages,
     });
 

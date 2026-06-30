@@ -38,7 +38,7 @@ const CANCEL_LOOKUP_PROMPT =
   "¿Tienes tu número de reserva? (ej. *#RES-0042*)\n" +
   "Si no lo recuerdas, dime tu nombre y la fecha (dd/mm/año) y lo busco yo. 😊";
 const CANCEL_WORDS =
-  /^\s*(no|nope|cancela|cancelar|no\s+quiero|mejor\s+no|para\s+atr[aá]s|regresa|volver|déjalo|dejalo)\s*$/i;
+  /^\s*(no|nope|cancela|cancelar|no\s+quiero|mejor\s+no|para\s+atr[aá]s|regresa|volver|déjalo|dejalo|no\s+gracias|no\s+la\s+confirmes|no\s+lo\s+quiero|no\s+la\s+quiero|no\s+lo\s+hagas|no\s+la\s+hagas|olv[íi]dalo|olv[íi]dala|olvida|no\s+procede|no\s+mandes?|no\s+confirmes?)\s*$/i;
 
 export class ReservationAgent {
   constructor(
@@ -71,6 +71,11 @@ export class ReservationAgent {
     }
 
     state.history.push({ role: "user", content: text });
+
+    // Trim history to prevent unbounded growth (keeps last 40 messages)
+    if (state.history.length > 40) {
+      state.history = state.history.slice(-40);
+    }
 
     let response: string;
 
@@ -116,8 +121,8 @@ export class ReservationAgent {
       return buildWelcome(config);
     }
 
-    // After confirmed/escalated, reset and re-greet
-    if (state.status === "confirmed" || state.status === "escalated") {
+    // After confirmed/escalated/cancelled, reset and re-greet
+    if (state.status === "confirmed" || state.status === "escalated" || state.status === "cancelled") {
       state.status = "greeting";
       state.data = {};
       state.history = [{ role: "user", content: text }];
@@ -177,8 +182,8 @@ export class ReservationAgent {
       return this.handleCancelConfirm(state, text, config);
     }
 
-    // Cancellation intent mid-flow
-    if (CANCELLATION_INTENT.test(text) && state.status === "collecting") {
+    // Cancellation intent mid-flow (collecting or confirming)
+    if (CANCELLATION_INTENT.test(text) && (state.status === "collecting" || state.status === "confirming")) {
       state.status = "cancelling_lookup";
       return CANCEL_LOOKUP_PROMPT;
     }
@@ -417,6 +422,14 @@ export class ReservationAgent {
       resetConversation(state.phone);
       state.status = "cancelled";
       return "Sin problema, cancelé la reserva. Si cambias de opinión, escríbeme cuando quieras. 👋";
+    }
+
+    // If the user is asking a question, answer it and re-show the summary
+    if (isQuestion(text)) {
+      const reply = await this.answerQuestion(state, text, config);
+      const action = nextAction(state.data, config);
+      const summary = action.type === "confirm" ? action.summary : buildSummary(state.data, config);
+      return `${reply}\n\n${summary}`;
     }
 
     // Treat anything else as a field correction

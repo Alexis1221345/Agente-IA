@@ -5,7 +5,7 @@ import Fastify from "fastify";
 import { ReservationAgent } from "../core/agent.js";
 import { ClaudeLLMClient } from "../integrations/llm/claude.js";
 import { restaurantRegistry } from "../config/demo.js";
-import { parseWebhookPayload, sendWhatsAppMessage } from "../channels/whatsapp.js";
+import { parseWebhookPayload, parseWebhookMediaSender, sendWhatsAppMessage } from "../channels/whatsapp.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const VERIFY_TOKEN = process.env.META_VERIFY_TOKEN ?? "";
@@ -43,7 +43,17 @@ app.post("/webhook", async (req, reply) => {
 
   const msg = parseWebhookPayload(req.body);
   if (!msg) {
-    app.log.debug("[webhook] Payload ignorado (status update o no-text)");
+    // Check if it was a media message — inform the user we only handle text
+    const mediaSender = parseWebhookMediaSender(req.body);
+    if (mediaSender) {
+      try {
+        await sendWhatsAppMessage(mediaSender, "Solo puedo procesar mensajes de texto 😊 ¿En qué te puedo ayudar?");
+      } catch (err) {
+        console.error("[webhook] Error enviando respuesta a media:", err);
+      }
+    } else {
+      app.log.debug("[webhook] Payload ignorado (status update o no-text)");
+    }
     return;
   }
 
