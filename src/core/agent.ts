@@ -25,6 +25,7 @@ import { normalizeDate, normalizeTime } from "../business/normalizer.js";
 import { nextAction, buildSummary, formatTimeDisplay } from "./gap-filler.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { isQuestion } from "./qa-helpers.js";
+import { currentOpenStatus } from "../business/schedule.js";
 import { type OrderItem, formatOrderSummary, orderTotal } from "../business/order.js";
 
 dayjs.extend(utc);
@@ -949,7 +950,7 @@ export class ReservationAgent {
       }
     }
 
-    const systemPrompt = buildSystemPrompt(config, menuText);
+    const systemPrompt = buildSystemPrompt(config, menuText, dayjs().tz(config.timezone));
     let reply = await this.llm.generateReply(systemPrompt, state.history.slice(0, -1), text);
 
     // Re-attach the pending field question so the conversation doesn't stall
@@ -1029,12 +1030,19 @@ function capitalize(s: string): string {
 
 function buildWelcome(config: RestaurantConfig): string {
   const hasMenu = Boolean(config.sheetsId);
+  const status = currentOpenStatus(config);
+  const statusLine = status.isOpen
+    ? `🟢 Estamos abiertos hasta las ${status.todaySchedule!.close} hrs`
+    : `🔴 Estamos cerrados${status.nextOpen ? ` — abrimos ${status.nextOpen}` : ""}`;
+
   return (
-    `¡Hola! Qué gusto saludarte desde *${config.name}* ☕\n\n` +
-    `¿Te late apartar una mesa${hasMenu ? ", ver algo del menú" : ""} o tienes alguna duda? Cuéntame y te ayudo.\n\n` +
+    `¡Hola! Qué gusto saludarte desde *${config.name}* ☕\n` +
+    `${statusLine}\n\n` +
+    `¿En qué te puedo ayudar hoy?\n\n` +
     `  1️⃣  Hacer una reserva\n` +
     `  2️⃣  Cancelar una reserva\n` +
-    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "")
+    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
+    `\nO cuéntame tu duda y te ayudo. 😊`
   );
 }
 
