@@ -54,6 +54,18 @@ export function normalizeDate(
   if (clean === "pasado mañana" || clean === "pasado manana")
     return base.add(2, "day").format("YYYY-MM-DD");
 
+  // Relative keywords embedded in phrases like "para mañana", "el dia de mañana"
+  if (/\bpasado\s+ma[nñ]ana\b/.test(clean))
+    return base.add(2, "day").format("YYYY-MM-DD");
+  if (/\bma[nñ]ana\b/.test(clean)) {
+    // "de la mañana" / "por la mañana" means "morning" (time period), not "tomorrow"
+    const withoutMorning = clean.replace(/\b(?:de|por)\s+la\s+ma[nñ]ana\b/g, "");
+    if (/\bma[nñ]ana\b/.test(withoutMorning))
+      return base.add(1, "day").format("YYYY-MM-DD");
+  }
+  if (/\bhoy\b/.test(clean))
+    return base.format("YYYY-MM-DD");
+
   // Day names: bare "domingo", "el viernes", "este sábado", "el próximo martes",
   // "el sábado de la siguiente semana", "el sábado de la próxima semana"
   const dayMatch = clean.match(
@@ -153,8 +165,8 @@ export function normalizeTime(input: string): string | null {
   } else if (period === "am" || period === "mañana" || period === "madrugada") {
     if (hour === 12) hour = 0;
   } else if (hour < 12) {
-    // No explicit period + hour < 12 → assume PM (restaurant hours are afternoon/evening)
-    hour += 12;
+    // No explicit period: hours 1-6 → assume PM (afternoon visits), hours 7-11 → AM (morning service)
+    if (hour <= 6) hour += 12;
   }
 
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
