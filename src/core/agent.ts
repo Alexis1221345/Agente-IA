@@ -378,7 +378,8 @@ export class ReservationAgent {
       return action.summary;
     }
 
-    return "¿En qué puedo ayudarte?";
+    // Fallback final: el LLM razona con todo el contexto disponible
+    return await this.answerQuestion(state, text, config);
   }
 
   private async handleConfirmation(
@@ -644,8 +645,9 @@ export class ReservationAgent {
       return await this.handleOrderingItems(state, text, config);
     }
 
-    // Unrecognized — show categories again
-    return `No entendí tu selección. 😊\n\n${buildCategoryList(categories, config.menuWebUrl)}`;
+    // No encaja en el flujo de pedido → el LLM razona y responde con contexto
+    const reply = await this.answerQuestion(state, text, config);
+    return `${reply}\n\n${buildCategoryList(categories, config.menuWebUrl)}`;
   }
 
   private async handleOrderingCategory(
@@ -1047,8 +1049,9 @@ function buildWelcome(config: RestaurantConfig): string {
 }
 
 // ── Comandos globales de navegación ─────────────────────────────────────────
+// Captura tanto comandos cortos como frases naturales de "volver al inicio"
 const RESET_CMD =
-  /^\s*(r|0|regresar|regresa|volver|inicio|menú|menu|reiniciar|restart)\s*$/i;
+  /^\s*(r|0|regresar?|volver?|inicio|men[uú]|reiniciar|restart|quiero\s+(regresar?|volver?|empezar\s+de\s+nuevo|comenzar\s+de\s+nuevo|ir\s+al\s+(men[uú]|inicio))|ir\s+al\s+(men[uú]|inicio)(\s+principal)?|men[uú]\s+principal|empezar\s+de\s+nuevo|comenzar\s+de\s+nuevo|otra\s+opci[oó]n|cambiar\s+de\s+opci[oó]n|no\s+quiero\s+(esto|eso|nada\s+de\s+esto))\s*[.!?¡¿]*\s*$/i;
 
 const GREETING_WORDS =
   /^\s*(hola|buenos\s+d[íi]as|buenas\s+tardes|buenas\s+noches|buenas|hey|hi|hello|qué\s+tal|que\s+tal|buen[ao]s)\s*[!¡.]*\s*$/i;

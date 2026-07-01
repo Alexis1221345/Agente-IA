@@ -49,27 +49,84 @@ const agent = new ReservationAgent(
 // ── Server ────────────────────────────────────────────────────
 const app = Fastify({ logger: true });
 
+const ALLOWED_ORIGIN = "https://alexis1221345.github.io";
+const MAX_DRAFTS = 500;
+const MAX_ITEMS = 30;
+const MAX_STR = 80;
+
+function sanitizeStr(v: unknown): string {
+  return String(v ?? "").replace(/[^\p{L}\p{N} ,.()\-+]/gu, "").slice(0, MAX_STR);
+}
+
 // CORS preflight para /order-draft (la página web llama a este endpoint)
 app.options("/order-draft", async (_req, reply) => {
   reply
-    .header("Access-Control-Allow-Origin", "*")
+    .header("Access-Control-Allow-Origin", ALLOWED_ORIGIN)
     .header("Access-Control-Allow-Methods", "POST")
     .header("Access-Control-Allow-Headers", "Content-Type")
     .status(204)
     .send();
 });
 
-/** Recibe el carrito desde pedido.html, guarda con código corto y lo devuelve */
+/** Recibe el carrito desde pedido.html, valida contra el menú y guarda con código corto */
 app.post("/order-draft", async (req, reply) => {
-  reply.header("Access-Control-Allow-Origin", "*");
+  reply.header("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+
+  if (orderDrafts.size >= MAX_DRAFTS) {
+    return reply.status(503).send({ error: "too many pending orders" });
+  }
+
   const body = req.body as { items?: unknown };
   if (!Array.isArray(body?.items) || body.items.length === 0) {
     return reply.status(400).send({ error: "empty order" });
   }
+  if (body.items.length > MAX_ITEMS) {
+    return reply.status(400).send({ error: "too many items" });
+  }
+
+  // Cargar menú para validar nombres y sobrescribir precios con valores del servidor
+  const cfg = Object.values(restaurantRegistry)[0];
+  const menuClient = cfg?.sheetsId && cfg.googleCredentialsPath
+    ? (await import("../integrations/sheets/menu-client.js")).getMenuClient(cfg.googleCredentialsPath, cfg.sheetsId)
+    : null;
+
+  let menuItems: import("../integrations/sheets/menu-client.js").MenuItem[] = [];
+  if (menuClient) {
+    try { menuItems = await menuClient.getMenu(); } catch { /* continúa sin validación de precio */ }
+  }
+
+  const validatedItems: OrderItem[] = [];
+  for (const raw of body.items as Record<string, unknown>[]) {
+    const nombre = sanitizeStr(raw.nombre);
+    if (!nombre) continue;
+
+    const cantidad = Math.max(1, Math.min(99, Math.floor(Number(raw.cantidad) || 1)));
+
+    // Precio siempre viene del menú del servidor; si no hay menú cae en el valor del cliente
+    const menuEntry = menuItems.find((m) =>
+      m.nombre.toLowerCase().trim() === nombre.toLowerCase().trim(),
+    );
+    const precio = menuEntry ? menuEntry.precio : Math.max(0, Number(raw.precio) || 0);
+
+    const extras = Array.isArray(raw.extras)
+      ? (raw.extras as unknown[]).map(sanitizeStr).filter(Boolean).slice(0, 10)
+      : [];
+    const sin = Array.isArray(raw.sin)
+      ? (raw.sin as unknown[]).map(sanitizeStr).filter(Boolean).slice(0, 10)
+      : [];
+    const nota = sanitizeStr(raw.nota);
+
+    validatedItems.push({ nombre, precio, cantidad, extras, sin, nota });
+  }
+
+  if (validatedItems.length === 0) {
+    return reply.status(400).send({ error: "no valid items" });
+  }
+
   let code: string;
   do { code = generateDraftCode(); } while (orderDrafts.has(code));
-  orderDrafts.set(code, { items: body.items as OrderItem[], createdAt: Date.now() });
-  console.log(`[order-draft] Guardado pedido web con código ${code}`);
+  orderDrafts.set(code, { items: validatedItems, createdAt: Date.now() });
+  console.log(`[order-draft] Guardado pedido web con código ${code} (${validatedItems.length} items)`);
   return reply.send({ code });
 });
 
