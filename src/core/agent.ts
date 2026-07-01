@@ -1182,12 +1182,12 @@ function buildCategoryList(categories: string[], menuWebUrl?: string): string {
     .map((c, i) => `  ${NUM_EMOJI[i] ?? `${i + 1}.`}  ${c}`)
     .join("\n");
   const menuLink = menuWebUrl
-    ? `📋 También puedes ver el menú completo aquí:\n${menuWebUrl}\n\n`
+    ? `📲 *¿Prefieres elegir desde nuestra página?*\n${menuWebUrl}\n_(Selecciona tus productos y toca "Realizar pedido por WhatsApp" — lo recibo aquí y lo confirmo contigo)_\n\n`
     : "";
   return (
     `¡Con gusto! 😊\n\n` +
     menuLink +
-    `O elige una categoría para ordenar:\n\n` +
+    `O cuéntame aquí qué quieres ordenar (elige una categoría):\n\n` +
     list +
     `\n\n_(Escribe el número de la categoría o el nombre del producto)_`
   );
