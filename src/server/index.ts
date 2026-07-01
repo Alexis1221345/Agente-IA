@@ -6,6 +6,7 @@ import { ReservationAgent } from "../core/agent.js";
 import { ClaudeLLMClient } from "../integrations/llm/claude.js";
 import { restaurantRegistry } from "../config/demo.js";
 import { parseWebhookPayload, parseWebhookMediaSender, sendWhatsAppMessage } from "../channels/whatsapp.js";
+import { randomInt } from "crypto";
 import { type OrderItem } from "../business/order.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -27,7 +28,7 @@ const orderDrafts = new Map<string, { items: OrderItem[]; createdAt: number }>()
 function generateDraftCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sin caracteres ambiguos (0, O, 1, I)
   let code = "";
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < 8; i++) code += chars[randomInt(0, chars.length)];
   return code;
 }
 
@@ -82,7 +83,7 @@ app.get("/webhook", async (req, reply) => {
 });
 
 // Detecta mensajes del tipo "Confirmar pedido #A1B2C3" o solo "#A1B2C3"
-const DRAFT_CODE_RE = /\bPED-([A-Z0-9]{6})\b/i;
+const DRAFT_CODE_RE = /\bPED-([A-Z0-9]{8})\b/i;
 
 /** Incoming WhatsApp messages */
 app.post("/webhook", async (req, reply) => {
