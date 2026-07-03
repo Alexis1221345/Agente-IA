@@ -1,7 +1,7 @@
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
-import type { ILLMClient } from "../integrations/llm/llm.interface.js";
+import type { ILLMClient, MessageIntent } from "../integrations/llm/llm.interface.js";
 import type { RestaurantConfig } from "../config/types.js";
 import { getCalendarClient } from "../integrations/calendar/factory.js";
 import { getMenuClient, type MenuItem } from "../integrations/sheets/menu-client.js";
@@ -111,6 +111,47 @@ export class ReservationAgent {
     return response;
   }
 
+  private async getIntent(
+    state: ConversationState,
+    text: string,
+    _config: RestaurantConfig,
+  ): Promise<MessageIntent> {
+    const collectedFields = [
+      state.data.fecha    ? `fecha: ${state.data.fecha}`       : null,
+      state.data.hora     ? `hora: ${state.data.hora}`         : null,
+      state.data.personas ? `personas: ${state.data.personas}` : null,
+      state.data.nombre   ? `nombre: ${state.data.nombre}`     : null,
+    ].filter(Boolean).join(", ");
+
+    try {
+      return await this.llm.classifyIntent(
+        state.status,
+        collectedFields || "ninguno",
+        state.history.slice(-6, -1),
+        text,
+      );
+    } catch {
+      return this.fallbackIntent(text);
+    }
+  }
+
+  private fallbackIntent(text: string): MessageIntent {
+    return {
+      isReservation:     RESERVATION_INTENT.test(text),
+      isOrder:           ORDER_INTENT.test(text),
+      isCancelFlow:      CANCELLATION_INTENT.test(text),
+      isConfirm:         CONFIRM_WORDS.test(text),
+      isReject:          CANCEL_WORDS.test(text),
+      isFarewell:        FAREWELL_WORDS.test(text),
+      isAbandon:         ABANDON_FLOW.test(text),
+      isQuestion:        isQuestion(text),
+      isDoneOrdering:    DONE_WORDS.test(text),
+      isCategoryNav:     CATEGORY_NAV.test(text),
+      isReset:           RESET_CMD.test(text),
+      isNegativeResponse: /^\s*(ninguna?|no|nada|sin\s+nada|no\s+tengo|ningún|no\s+gracias|no\s+hay|no\s+tengo\s+ninguna?|sin\s+petici[oó]n|sin\s+nada\s+especial|no\s+necesito(\s+nada)?|estamos\s+bien|todo\s+bien|sin\s+problema|no\s+tengo\s+nada|estoy\s+bien|sin\s+especial|no\s+especial|no\s+pasa\s+nada)\s*$/i.test(text),
+    };
+  }
+
   private async process(
     state: ConversationState,
     text: string,
@@ -121,8 +162,10 @@ export class ReservationAgent {
       return await this.handleWebOrder(state, text, config);
     }
 
+    const intent = await this.getIntent(state, text, config);
+
     // ── Comando global: R / r / 0 → volver al menú principal ────────────────
-    if (RESET_CMD.test(text) && state.status !== "greeting") {
+    if ((intent.isReset || RESET_CMD.test(text)) && state.status !== "greeting") {
       state.status = "greeting";
       state.data = {};
       state.history = [{ role: "user", content: text }];
@@ -136,7 +179,7 @@ export class ReservationAgent {
         state.data.personas = undefined;
         state.status = "collecting";
         // Fall through to field extraction
-      } else if (state.status === "confirmed" && FAREWELL_WORDS.test(text)) {
+      } else if (state.status === "confirmed" && (intent.isFarewell || FAREWELL_WORDS.test(text))) {
         state.status = "greeting";
         state.data = {};
         return "¡Con mucho gusto! 😊 Que lo disfrutes. Si necesitas algo más, aquí estoy.";
@@ -159,7 +202,7 @@ export class ReservationAgent {
     // reserva para el sábado a las 8").
     if (state.status === "greeting") {
       // ORDER_INTENT needs async menu load — check first
-      if (config.sheetsId && (ORDER_INTENT.test(text) || /^3$/.test(text.trim()))) {
+      if (config.sheetsId && (intent.isOrder || /^3$/.test(text.trim()))) {
         const openStatus = currentOpenStatus(config);
         if (!openStatus.isOpen) {
           // Closed — offer pre-order for next opening slot
@@ -178,11 +221,11 @@ export class ReservationAgent {
         state.status = "ordering_ask";
         return await this.buildOrderingAskMessage(config);
       }
-      if (CANCELLATION_INTENT.test(text) || /^2$/.test(text.trim())) {
+      if (intent.isCancelFlow || /^2$/.test(text.trim())) {
         state.status = "cancelling_lookup";
         return CANCEL_LOOKUP_PROMPT;
       }
-      if (RESERVATION_INTENT.test(text) || /^1$/.test(text.trim())) {
+      if (intent.isReservation || /^1$/.test(text.trim())) {
         state.status = "collecting";
         // Fall through to field extraction — any data already given gets extracted
       } else {
@@ -199,16 +242,16 @@ export class ReservationAgent {
       return this.handleWebOrderName(state, text, config);
     }
     if (state.status === "ordering_ask") {
-      return await this.handleOrderingAsk(state, text, config);
+      return await this.handleOrderingAsk(state, text, config, intent);
     }
     if (state.status === "ordering_category") {
-      return await this.handleOrderingCategory(state, text, config);
+      return await this.handleOrderingCategory(state, text, config, intent);
     }
     if (state.status === "ordering_link" || state.status === "ordering_items") {
-      return await this.handleOrderingItems(state, text, config);
+      return await this.handleOrderingItems(state, text, config, intent);
     }
     if (state.status === "ordering_confirm") {
-      return await this.handleOrderingConfirm(state, text, config);
+      return await this.handleOrderingConfirm(state, text, config, intent);
     }
 
     // Cancellation flow
@@ -220,9 +263,9 @@ export class ReservationAgent {
     }
 
     // User abandons the in-progress reservation and may switch to ordering
-    if (ABANDON_FLOW.test(text) && (state.status === "collecting" || state.status === "confirming")) {
+    if (intent.isAbandon && (state.status === "collecting" || state.status === "confirming")) {
       state.data = {};
-      if (config.sheetsId && ORDER_INTENT.test(text)) {
+      if (config.sheetsId && intent.isOrder) {
         state.status = "ordering_ask";
         return `Sin problema. 😊\n\n${await this.buildOrderingAskMessage(config)}`;
       }
@@ -231,14 +274,14 @@ export class ReservationAgent {
     }
 
     // Cancellation intent mid-flow (collecting or confirming)
-    if (CANCELLATION_INTENT.test(text) && (state.status === "collecting" || state.status === "confirming")) {
+    if (intent.isCancelFlow && (state.status === "collecting" || state.status === "confirming")) {
       state.status = "cancelling_lookup";
       return CANCEL_LOOKUP_PROMPT;
     }
 
     // Handle confirmation step
     if (state.status === "confirming") {
-      return await this.handleConfirmation(state, text, config);
+      return await this.handleConfirmation(state, text, config, intent);
     }
 
     // Negative / "ninguna" response to the peticiones question → treat as empty
@@ -246,7 +289,7 @@ export class ReservationAgent {
       state.data.nombre &&
       state.data.peticiones === undefined &&
       hasMentionedPeticiones(state.history) &&
-      /^\s*(ninguna?|no|nada|sin\s+nada|no\s+tengo|ningún|ningún?|no\s+gracias|no\s+hay|no\s+tengo\s+ninguna?|sin\s+petici[oó]n|sin\s+nada\s+especial|no\s+necesito(\s+nada)?|estamos\s+bien|todo\s+bien|sin\s+problema|no\s+tengo\s+nada|estoy\s+bien|sin\s+especial|no\s+especial|no\s+pasa\s+nada)\s*$/i.test(text)
+      intent.isNegativeResponse
     ) {
       state.data.peticiones = "";
     }
@@ -350,7 +393,7 @@ export class ReservationAgent {
         state.data.personas !== snapFields.personas ||
         state.data.nombre   !== snapFields.nombre   ||
         state.data.peticiones !== snapFields.peticiones;
-      if (!newFieldAdded && isQuestion(text)) {
+      if (!newFieldAdded && intent.isQuestion) {
         return await this.answerQuestion(state, text, config, action.question);
       }
       return action.question;
@@ -448,14 +491,9 @@ export class ReservationAgent {
     state: ConversationState,
     text: string,
     config: RestaurantConfig,
+    intent: MessageIntent,
   ): Promise<string> {
-    // Also treat "confirm word + gracias" as confirmation (e.g. "así está perfecto muchas gracias")
-    const IMPLICIT_CONFIRM =
-      /\b(sí|si|yes|confirmo|dale|claro|ok|okay|listo|perfecto|sale|está\s+bien|esta\s+bien|de\s+acuerdo|correcto|adelante|as[ií]\s+est[aá])\b/i;
-    const isImplicitConfirm =
-      IMPLICIT_CONFIRM.test(text) && /\b(gracias|thank)\b/i.test(text);
-
-    if (CONFIRM_WORDS.test(text) || isImplicitConfirm) {
+    if (intent.isConfirm || CONFIRM_WORDS.test(text)) {
       // Save to DB first to get the reservation ID, then sync to Calendar
       const resId = saveReservation(state);
       const resCode = formatResId(resId);
@@ -488,9 +526,9 @@ export class ReservationAgent {
       );
     }
 
-    if (CANCEL_WORDS.test(text) || ABANDON_FLOW.test(text)) {
+    if (intent.isReject || intent.isAbandon || CANCEL_WORDS.test(text)) {
       state.data = {};
-      if (config.sheetsId && ORDER_INTENT.test(text)) {
+      if (config.sheetsId && intent.isOrder) {
         state.status = "ordering_ask";
         return `Sin problema, olvidamos la reserva. 😊\n\n${await this.buildOrderingAskMessage(config)}`;
       }
@@ -500,7 +538,7 @@ export class ReservationAgent {
     }
 
     // If the user is asking a question, answer it and re-show the summary
-    if (isQuestion(text)) {
+    if (intent.isQuestion) {
       const reply = await this.answerQuestion(state, text, config);
       const action = nextAction(state.data, config);
       const summary = action.type === "confirm" ? action.summary : buildSummary(state.data, config);
@@ -733,6 +771,7 @@ export class ReservationAgent {
     state: ConversationState,
     text: string,
     config: RestaurantConfig,
+    intent: MessageIntent,
   ): Promise<string> {
     const client = this.menuClient(config);
     if (!client) return "Lo siento, el sistema de pedidos no está disponible. 🙏";
@@ -764,7 +803,7 @@ export class ReservationAgent {
     const extracted = await this.llm.extractOrderItems(state.history.slice(0, -1), text);
     if (extracted.items.length > 0) {
       state.status = "ordering_items";
-      return await this.handleOrderingItems(state, text, config);
+      return await this.handleOrderingItems(state, text, config, intent);
     }
 
     // No encaja en el flujo de pedido → el LLM razona y responde con contexto
@@ -776,6 +815,7 @@ export class ReservationAgent {
     state: ConversationState,
     text: string,
     config: RestaurantConfig,
+    intent: MessageIntent,
   ): Promise<string> {
     const client = this.menuClient(config);
     if (!client) return "Lo siento, el sistema de pedidos no está disponible. 🙏";
@@ -792,7 +832,7 @@ export class ReservationAgent {
     const catItems = menuItems.filter((i) => i.categoria === pendingCat);
 
     // "categorías" → back to category list
-    if (CATEGORY_NAV.test(text)) {
+    if (intent.isCategoryNav || CATEGORY_NAV.test(text)) {
       state.status = "ordering_ask";
       return buildCategoryList(categories, config.menuWebUrl);
     }
@@ -833,21 +873,19 @@ export class ReservationAgent {
 
     // User typed a product name — fall into items flow
     state.status = "ordering_items";
-    return await this.handleOrderingItems(state, text, config);
+    return await this.handleOrderingItems(state, text, config, intent);
   }
 
   private async handleOrderingItems(
     state: ConversationState,
     text: string,
     config: RestaurantConfig,
+    intent: MessageIntent,
   ): Promise<string> {
-    const DONE_WORDS =
-      /^\s*(listo|ya|eso\s+es\s+todo|nada\s+m[aá]s|es\s+todo|termin[eé]|ya\s+es\s+todo|ok\s+listo|todo|fin)\s*$/i;
-
     const order = state.data.order ?? { items: [] };
 
     // "categorías" → show category list (keeps current order in memory)
-    if (CATEGORY_NAV.test(text)) {
+    if (intent.isCategoryNav || CATEGORY_NAV.test(text)) {
       state.status = "ordering_ask";
       const msg = await this.buildOrderingAskMessage(config);
       if (order.items.length > 0) {
@@ -856,7 +894,7 @@ export class ReservationAgent {
       return msg;
     }
 
-    if (DONE_WORDS.test(text)) {
+    if (intent.isDoneOrdering || DONE_WORDS.test(text)) {
       if (order.items.length === 0) {
         return "Todavía no has agregado nada. Dime qué quieres ordenar o visita el menú para elegir. 😊";
       }
@@ -987,7 +1025,7 @@ export class ReservationAgent {
         `¿Algo más? Si terminaste, escribe *listo*.`,
       );
     } else if (extracted.items.length === 0) {
-      if (isQuestion(text)) {
+      if (intent.isQuestion) {
         const pendingOrder =
           order.items.length > 0
             ? `Tu pedido hasta ahora:\n${formatOrderSummary(order.items)}\n\n¿Algo más o escribes *listo*?`
@@ -1008,10 +1046,11 @@ export class ReservationAgent {
     state: ConversationState,
     text: string,
     config: RestaurantConfig,
+    intent: MessageIntent,
   ): Promise<string> {
     const order = state.data.order ?? { items: [] };
 
-    if (CONFIRM_WORDS.test(text)) {
+    if (intent.isConfirm || CONFIRM_WORDS.test(text)) {
       if (order.items.length === 0) {
         state.status = "greeting";
         return buildWelcome(config);
@@ -1033,7 +1072,7 @@ export class ReservationAgent {
       );
     }
 
-    if (CANCEL_WORDS.test(text)) {
+    if (intent.isReject || CANCEL_WORDS.test(text)) {
       state.status = "ordering_items";
       return (
         `Sin problema. Tu pedido actual:\n\n${formatOrderSummary(order.items)}\n\n` +
@@ -1049,7 +1088,7 @@ export class ReservationAgent {
         const extracted = await this.llm.extractOrderItems(state.history.slice(0, -1), text);
         if (extracted.items.length > 0 || extracted.removeNombre) {
           state.status = "ordering_items";
-          return await this.handleOrderingItems(state, text, config);
+          return await this.handleOrderingItems(state, text, config, intent);
         }
       } catch {
         // ignore and fall through
@@ -1251,6 +1290,8 @@ const ORDER_INTENT =
   /ped(ir|ido)|orden(ar)?|quiero\s+(pedir|comer|tomar|ordenar)|me\s+gustar[íi]a\s+(pedir|ordenar)|qu[eé]\s+tienen|qu[eé]\s+hay|ver\s+el\s+men[uú]/i;
 const CATEGORY_NAV =
   /^\s*(categ[oó]r[íi]?as?|ver\s+categ[oó]r[íi]?as?|men[uú]|opciones|volver|regresar)\s*$/i;
+const DONE_WORDS =
+  /^\s*(listo|ya|eso\s+es\s+todo|nada\s+m[aá]s|es\s+todo|termin[eé]|ya\s+es\s+todo|ok\s+listo|todo|fin)\s*$/i;
 
 
 function cancelSummary(r: ReservationRecord): string {

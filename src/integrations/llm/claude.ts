@@ -1,7 +1,51 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ILLMClient, ExtractedFields, ExtractedOrderItems, RawOrderItem } from "./llm.interface.js";
+import type { ILLMClient, ExtractedFields, ExtractedOrderItems, RawOrderItem, MessageIntent } from "./llm.interface.js";
 import type { Message } from "../../data/conversation-repo.js";
 import type { ReservationData } from "../../business/reservation.js";
+
+const CLASSIFY_TOOL: Anthropic.Tool = {
+  name: "classify_intent",
+  description:
+    "Classify all applicable intents in the customer's message given the current bot state. " +
+    "Mark EVERY flag that applies — a message can have multiple intents.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      isReservation:     { type: "boolean", description: "Wants to make a reservation" },
+      isOrder:           { type: "boolean", description: "Wants to order food/drinks" },
+      isCancelFlow:      { type: "boolean", description: "Wants to cancel an existing reservation" },
+      isConfirm:         { type: "boolean", description: "Accepts/confirms what the bot showed (sí, perfecto, listo, así está bien, muchas gracias exacto, etc.)" },
+      isReject:          { type: "boolean", description: "Rejects/cancels what the bot showed (no, cancela, mejor no)" },
+      isFarewell:        { type: "boolean", description: "Says goodbye or ends the conversation" },
+      isAbandon:         { type: "boolean", description: "Wants to abandon the current flow (siempre no, olvidalo, never mind)" },
+      isQuestion:        { type: "boolean", description: "Asks a question about the restaurant, menu, hours, etc." },
+      isDoneOrdering:    { type: "boolean", description: "Done adding items and wants to finalize the order" },
+      isCategoryNav:     { type: "boolean", description: "Wants to see menu categories" },
+      isReset:           { type: "boolean", description: "Wants to restart the conversation from scratch" },
+      isNegativeResponse: { type: "boolean", description: "Says no special requests (no, nada, todo bien, ninguna)" },
+    },
+    required: [
+      "isReservation", "isOrder", "isCancelFlow", "isConfirm", "isReject",
+      "isFarewell", "isAbandon", "isQuestion", "isDoneOrdering", "isCategoryNav",
+      "isReset", "isNegativeResponse",
+    ],
+  },
+};
+
+export const DEFAULT_INTENT: MessageIntent = {
+  isReservation:     false,
+  isOrder:           false,
+  isCancelFlow:      false,
+  isConfirm:         false,
+  isReject:          false,
+  isFarewell:        false,
+  isAbandon:         false,
+  isQuestion:        false,
+  isDoneOrdering:    false,
+  isCategoryNav:     false,
+  isReset:           false,
+  isNegativeResponse: false,
+};
 
 const EXTRACT_TOOL: Anthropic.Tool = {
   name: "extract_reservation_fields",
@@ -211,5 +255,58 @@ export class ClaudeLLMClient implements ILLMClient {
 
     const text = response.content.find((b) => b.type === "text");
     return text?.type === "text" ? text.text : "";
+  }
+
+  async classifyIntent(
+    status: string,
+    collectedFields: string,
+    history: Message[],
+    userMessage: string,
+  ): Promise<MessageIntent> {
+    // Use only the last 6 messages for speed (intent classification is latency-sensitive)
+    const messages: Anthropic.MessageParam[] = [
+      ...history.slice(-6).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+      { role: "user", content: userMessage },
+    ];
+
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 256,
+      system:
+        `Eres un clasificador de intenciones para el chatbot de un restaurante mexicano.\n` +
+        `Estado actual del bot: ${status}\n` +
+        `Datos recopilados: ${collectedFields}\n` +
+        `Analiza el mensaje del usuario en contexto y marca TODAS las intenciones que apliquen.\n` +
+        `Un mismo mensaje puede tener múltiples intenciones (ej: "sí gracias" → isConfirm=true, isFarewell=true).\n` +
+        `Ejemplos:\n` +
+        `- "así está perfecto muchas gracias" → isConfirm=true, isFarewell=true\n` +
+        `- "siempre no, mejor un pedido" → isAbandon=true, isOrder=true\n` +
+        `- "¿tienen wifi?" → isQuestion=true\n` +
+        `- "no tengo nada especial" → isNegativeResponse=true`,
+      tools: [CLASSIFY_TOOL],
+      tool_choice: { type: "tool", name: "classify_intent" },
+      messages,
+    });
+
+    const toolUse = response.content.find((b) => b.type === "tool_use");
+    if (!toolUse || toolUse.type !== "tool_use") {
+      return { ...DEFAULT_INTENT };
+    }
+
+    const input = toolUse.input as Record<string, unknown>;
+    return {
+      isReservation:     Boolean(input.isReservation),
+      isOrder:           Boolean(input.isOrder),
+      isCancelFlow:      Boolean(input.isCancelFlow),
+      isConfirm:         Boolean(input.isConfirm),
+      isReject:          Boolean(input.isReject),
+      isFarewell:        Boolean(input.isFarewell),
+      isAbandon:         Boolean(input.isAbandon),
+      isQuestion:        Boolean(input.isQuestion),
+      isDoneOrdering:    Boolean(input.isDoneOrdering),
+      isCategoryNav:     Boolean(input.isCategoryNav),
+      isReset:           Boolean(input.isReset),
+      isNegativeResponse: Boolean(input.isNegativeResponse),
+    };
   }
 }
