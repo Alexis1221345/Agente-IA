@@ -96,6 +96,7 @@ export class MenuSheetsClient {
       lines.push(`${cat}:`);
       for (const i of catItems) {
         const mods: string[] = [];
+        if (i.descripcion) mods.push(`desc: ${i.descripcion}`);
         if (i.extras.length) mods.push(`extras: ${i.extras.join(", ")}`);
         if (i.sinOpciones.length) mods.push(`sin: ${i.sinOpciones.join(", ")}`);
         lines.push(`  - ${i.nombre} $${i.precio}${mods.length ? ` (${mods.join("; ")})` : ""}`);

@@ -25,7 +25,7 @@ import { normalizeDate, normalizeTime } from "../business/normalizer.js";
 import { nextAction, buildSummary, formatTimeDisplay } from "./gap-filler.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { isQuestion } from "./qa-helpers.js";
-import { currentOpenStatus } from "../business/schedule.js";
+import { currentOpenStatus, nextOpenDaySchedule } from "../business/schedule.js";
 import { type OrderItem, formatOrderSummary, orderTotal } from "../business/order.js";
 
 dayjs.extend(utc);
@@ -39,7 +39,14 @@ const CANCEL_LOOKUP_PROMPT =
   "¿Tienes tu número de reserva? (ej. *#RES-0042*)\n" +
   "Si no lo recuerdas, dime tu nombre y la fecha (dd/mm/año) y lo busco yo. 😊";
 const CANCEL_WORDS =
-  /^\s*(no|nope|cancela|cancelar|no\s+quiero|mejor\s+no|para\s+atr[aá]s|regresa|volver|déjalo|dejalo|no\s+gracias|no\s+la\s+confirmes|no\s+lo\s+quiero|no\s+la\s+quiero|no\s+lo\s+hagas|no\s+la\s+hagas|olv[íi]dalo|olv[íi]dala|olvida|no\s+procede|no\s+mandes?|no\s+confirmes?)\s*$/i;
+  /^\s*(no|nope|cancela|cancelar|no\s+quiero|mejor\s+no|siempre\s+no|ya\s+no|nah|para\s+atr[aá]s|regresa|volver|déjalo|dejalo|no\s+gracias|no\s+la\s+confirmes|no\s+lo\s+quiero|no\s+la\s+quiero|no\s+lo\s+hagas|no\s+la\s+hagas|olv[íi]dalo|olv[íi]dala|olvida|no\s+procede|no\s+mandes?|no\s+confirmes?)\s*[.!?¡¿]*\s*$/i;
+
+// Phrases that signal "never mind, drop this flow" — can appear at start of longer messages
+const ABANDON_FLOW =
+  /^\s*(siempre\s+no|mejor\s+no|ya\s+no|en\s+realidad\s+no|la\s+verdad\s+no|no\s+mejor|d[eé]jalo|olv[íi]d[ao]|nah)\b/i;
+
+const FAREWELL_WORDS =
+  /^\s*(gracias|muchas\s+gracias|thank(s| you)|de\s+nada|ok\s+gracias|perfecto\s+gracias|listo\s+gracias|hasta\s+luego|hasta\s+pronto|nos\s+vemos|chao|bye|adiós|adios|cu[íi]date|cuidate)\s*[.!?¡¿]*\s*$/i;
 
 export class ReservationAgent {
   constructor(
@@ -122,12 +129,23 @@ export class ReservationAgent {
       return buildWelcome(config);
     }
 
-    // After confirmed/escalated/cancelled, reset and re-greet
+    // After confirmed/escalated/cancelled handle appropriately
     if (state.status === "confirmed" || state.status === "escalated" || state.status === "cancelled") {
-      state.status = "greeting";
-      state.data = {};
-      state.history = [{ role: "user", content: text }];
-      return buildWelcome(config);
+      if (state.status === "escalated") {
+        // User is correcting the data that caused escalation — clear bad field and continue
+        state.data.personas = undefined;
+        state.status = "collecting";
+        // Fall through to field extraction
+      } else if (state.status === "confirmed" && FAREWELL_WORDS.test(text)) {
+        state.status = "greeting";
+        state.data = {};
+        return "¡Con mucho gusto! 😊 Que lo disfrutes. Si necesitas algo más, aquí estoy.";
+      } else {
+        state.status = "greeting";
+        state.data = {};
+        state.history = [{ role: "user", content: text }];
+        return buildWelcome(config);
+      }
     }
 
     // ── Saludo mid-flujo: recordar contexto en lugar de ignorar ─────────────
@@ -142,6 +160,21 @@ export class ReservationAgent {
     if (state.status === "greeting") {
       // ORDER_INTENT needs async menu load — check first
       if (config.sheetsId && (ORDER_INTENT.test(text) || /^3$/.test(text.trim()))) {
+        const openStatus = currentOpenStatus(config);
+        if (!openStatus.isOpen) {
+          // Closed — offer pre-order for next opening slot
+          const next = nextOpenDaySchedule(config);
+          if (next) {
+            state.status = "ordering_preorder_time";
+            state.data.order = { items: [] };
+            return (
+              `Ahorita estamos cerrados 😴, pero con gusto te tomo el pedido para recoger *${next.label}*.\n` +
+              `Atendemos de *${next.open}* a *${next.close}*.\n\n` +
+              `¿A qué hora quieres pasar? 😊`
+            );
+          }
+          return `Lo sentimos, en este momento estamos cerrados. Por favor intenta cuando abramos. 🙏`;
+        }
         state.status = "ordering_ask";
         return await this.buildOrderingAskMessage(config);
       }
@@ -159,6 +192,9 @@ export class ReservationAgent {
     }
 
     // Ordering flow
+    if (state.status === "ordering_preorder_time") {
+      return await this.handleOrderingPreorderTime(state, text, config);
+    }
     if (state.status === "ordering_web_name") {
       return this.handleWebOrderName(state, text, config);
     }
@@ -181,6 +217,17 @@ export class ReservationAgent {
     }
     if (state.status === "cancelling_confirm") {
       return this.handleCancelConfirm(state, text, config);
+    }
+
+    // User abandons the in-progress reservation and may switch to ordering
+    if (ABANDON_FLOW.test(text) && (state.status === "collecting" || state.status === "confirming")) {
+      state.data = {};
+      if (config.sheetsId && ORDER_INTENT.test(text)) {
+        state.status = "ordering_ask";
+        return `Sin problema. 😊\n\n${await this.buildOrderingAskMessage(config)}`;
+      }
+      state.status = "greeting";
+      return buildWelcome(config);
     }
 
     // Cancellation intent mid-flow (collecting or confirming)
@@ -249,23 +296,38 @@ export class ReservationAgent {
       }
     }
 
-    // 3. PERSONAS — bare number or word-number when fecha + hora are known
-    //    Skip if text contains ":" (could be a time correction like "20:00")
-    if (!state.data.personas && state.data.fecha && state.data.hora && !text.includes(":")) {
-      const t = text.trim().toLowerCase();
-      const digitMatch = t.match(/\b(\d{1,2})\b/);
-      if (digitMatch) {
-        const n = parseInt(digitMatch[1], 10);
-        if (n >= 1 && n <= 20) state.data.personas = n;
-      } else {
-        const WORD_NUMS: Record<string, number> = {
-          uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5,
-          seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10,
-        };
-        for (const [word, num] of Object.entries(WORD_NUMS)) {
-          if (new RegExp(`\\b${word}\\b`).test(t)) {
-            state.data.personas = num;
-            break;
+    // 3. PERSONAS — bare number or word-number when fecha + hora are known.
+    //    Guard 1: skip if hora was set for the FIRST TIME in this same message —
+    //             the digit the user wrote is the hour, not the guest count.
+    //    Guard 2: skip if text contains time-period words ("de la tarde", "de la mañana", etc.)
+    //             because the visible digit belongs to the time expression.
+    //    Guard 3: skip if text contains ":" (time correction like "20:00").
+    const horaJustSetThisTurn = !!state.data.hora && snapFields.hora === undefined;
+    if (
+      !state.data.personas &&
+      state.data.fecha &&
+      state.data.hora &&
+      !text.includes(":") &&
+      !horaJustSetThisTurn
+    ) {
+      const hasTimePeriod =
+        /de\s+la\s+(ma[nñ]ana|tarde|noche|madrugada)|a\s+las?\s*\d|\b(am|pm)\b|\d{1,2}\s*h(?:rs?)?/i.test(text);
+      if (!hasTimePeriod) {
+        const t = text.trim().toLowerCase();
+        const digitMatch = t.match(/\b(\d{1,2})\b/);
+        if (digitMatch) {
+          const n = parseInt(digitMatch[1], 10);
+          if (n >= 1 && n <= 20) state.data.personas = n;
+        } else {
+          const WORD_NUMS: Record<string, number> = {
+            uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5,
+            seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10,
+          };
+          for (const [word, num] of Object.entries(WORD_NUMS)) {
+            if (new RegExp(`\\b${word}\\b`).test(t)) {
+              state.data.personas = num;
+              break;
+            }
           }
         }
       }
@@ -420,10 +482,15 @@ export class ReservationAgent {
       );
     }
 
-    if (CANCEL_WORDS.test(text)) {
+    if (CANCEL_WORDS.test(text) || ABANDON_FLOW.test(text)) {
+      state.data = {};
+      if (config.sheetsId && ORDER_INTENT.test(text)) {
+        state.status = "ordering_ask";
+        return `Sin problema, olvidamos la reserva. 😊\n\n${await this.buildOrderingAskMessage(config)}`;
+      }
       resetConversation(state.phone);
       state.status = "cancelled";
-      return "Sin problema, cancelé la reserva. Si cambias de opinión, escríbeme cuando quieras. 👋";
+      return "Sin problema, quedó cancelado. Si cambias de opinión, escríbeme cuando quieras. 👋";
     }
 
     // If the user is asking a question, answer it and re-show the summary
@@ -539,6 +606,44 @@ export class ReservationAgent {
     return `¿Confirmamos la cancelación de la reserva *${formatResId(target.id)}*?`;
   }
 
+  private async handleOrderingPreorderTime(
+    state: ConversationState,
+    text: string,
+    config: RestaurantConfig,
+  ): Promise<string> {
+    const pickupTime = normalizeTime(text.trim());
+
+    if (!pickupTime) {
+      return `No entendí el horario. ¿A qué hora quieres pasar? Por ejemplo: *9:00*, *10 de la mañana*, *2 pm* 😊`;
+    }
+
+    const next = nextOpenDaySchedule(config);
+    if (next) {
+      const toMin = (hhmm: string) => {
+        const [h, m] = hhmm.split(":").map(Number);
+        return h * 60 + m;
+      };
+      const pickupMin = toMin(pickupTime);
+      const openMin = toMin(next.open);
+      const closeMin = toMin(next.close);
+
+      if (pickupMin < openMin || pickupMin >= closeMin) {
+        return (
+          `Ese horario queda fuera — atendemos *${next.label}* de *${next.open}* a *${next.close}*.\n` +
+          `¿A qué hora te viene mejor? 😊`
+        );
+      }
+    }
+
+    if (!state.data.order) state.data.order = { items: [] };
+    state.data.order.pickupTime = pickupTime;
+    state.status = "ordering_ask";
+    return (
+      `Perfecto, anotado para las *${formatTimeDisplay(pickupTime)}* 🕐\n\n` +
+      `${await this.buildOrderingAskMessage(config)}`
+    );
+  }
+
   private async handleWebOrder(
     state: ConversationState,
     text: string,
@@ -552,9 +657,14 @@ export class ReservationAgent {
       }
       state.data.order = { items: parsed.items };
       state.status = "ordering_web_name";
+      const openStatus = currentOpenStatus(config);
+      const closedNote = !openStatus.isOpen && openStatus.nextOpen
+        ? `\n\n🕐 Estamos cerrados ahorita — lo tendremos listo *${openStatus.nextOpen}*.`
+        : "";
       return (
         `🛒 ¡Recibí tu pedido de *${config.name}*!\n\n` +
         formatOrderSummary(parsed.items) +
+        closedNote +
         `\n\n¿A nombre de quién quedamos? 😊`
       );
     } catch {
@@ -577,12 +687,18 @@ export class ReservationAgent {
     }
     const order = state.data.order ?? { items: [] };
     state.data.nombre = nombre;
-    const pickup = dayjs().tz(config.timezone).add(30, "minute").format("HH:mm");
+    const pickupTime = order.pickupTime;
+    const pickup = pickupTime
+      ? formatTimeDisplay(pickupTime)
+      : dayjs().tz(config.timezone).add(30, "minute").format("HH:mm");
+    const pickupLabel = pickupTime
+      ? `listo para las *${pickup}*`
+      : `listo para las *${pickup}* aprox.`;
     state.status = "ordering_confirm";
     return (
       `¡Perfecto, *${nombre}*! Aquí tu pedido:\n\n` +
       formatOrderSummary(order.items) +
-      `\n\n⏰ Tiempo estimado: listo para las *${pickup}* aprox.\n\n` +
+      `\n\n⏰ Tiempo estimado: ${pickupLabel}\n\n` +
       `¿Confirmamos? (sí / no)`
     );
   }
@@ -865,6 +981,13 @@ export class ReservationAgent {
         `¿Algo más? Si terminaste, escribe *listo*.`,
       );
     } else if (extracted.items.length === 0) {
+      if (isQuestion(text)) {
+        const pendingOrder =
+          order.items.length > 0
+            ? `Tu pedido hasta ahora:\n${formatOrderSummary(order.items)}\n\n¿Algo más o escribes *listo*?`
+            : "¿Qué quieres ordenar? 😊";
+        return await this.answerQuestion(state, text, config, pendingOrder);
+      }
       const menuUrl = config.menuWebUrl ?? "el menú";
       parts.push(
         `No pude identificar ningún producto. ` +
@@ -887,14 +1010,19 @@ export class ReservationAgent {
         state.status = "greeting";
         return buildWelcome(config);
       }
+      const pickupTime = order.pickupTime;
       const orderId = saveOrder(state);
       const orderCode = formatOrderId(orderId);
       state.status = "confirmed";
       state.data = {};
 
+      const pickupLine = pickupTime
+        ? `🕐 Para recoger a las *${formatTimeDisplay(pickupTime)}*\n`
+        : ``;
       return (
         `¡Listo! 🎉 Tu pedido está registrado en *${config.name}*.\n` +
         `🔖 Número de pedido: *${orderCode}*\n` +
+        pickupLine +
         `En breve el equipo lo prepara. ¡Gracias! ☕`
       );
     }
@@ -942,9 +1070,7 @@ export class ReservationAgent {
         if (client) {
           const items = await client.getMenu();
           if (items.length > 0) {
-            menuText = items
-              .map((i) => `${i.categoria} — ${i.nombre}: $${i.precio}`)
-              .join("\n");
+            menuText = client.menuText(items);
           }
         }
       } catch {
@@ -1074,6 +1200,12 @@ function buildContextReminder(
       parts.push(`\n¿Continuamos? Escribe el dato que falta o dime si cambias algo.`);
       return parts.join("\n") + back;
     }
+    case "ordering_preorder_time":
+      return (
+        `¡Hola de nuevo! 👋 Estábamos apartando un pedido para cuando abramos.\n` +
+        `¿A qué hora quieres pasar a recoger?` +
+        back
+      );
     case "ordering_ask":
     case "ordering_category":
     case "ordering_items":

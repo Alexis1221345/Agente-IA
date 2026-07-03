@@ -165,8 +165,8 @@ export function normalizeTime(input: string): string | null {
   } else if (period === "am" || period === "mañana" || period === "madrugada") {
     if (hour === 12) hour = 0;
   } else if (hour < 12) {
-    // No explicit period: hours 1-6 → assume PM (afternoon visits), hours 7-11 → AM (morning service)
-    if (hour <= 6) hour += 12;
+    // No explicit period: assume PM (default in restaurant context — most visits are afternoon/evening)
+    hour += 12;
   }
 
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;

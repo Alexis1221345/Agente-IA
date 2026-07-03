@@ -158,14 +158,18 @@ export function updateReservationExternalId(id: number, externalId: string): voi
 export function saveOrder(state: ConversationState): number {
   const items = state.data.order?.items ?? [];
   const total = orderTotal(items);
+  const pickupTime = state.data.order?.pickupTime ?? null;
+  const nombre = state.data.nombre ?? null;
   const result = db.prepare(`
-    INSERT INTO orders (restaurant_id, phone, items, total, status, created_at)
-    VALUES (?, ?, ?, ?, 'pending', ?)
+    INSERT INTO orders (restaurant_id, phone, nombre, items, total, pickup_time, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
   `).run(
     state.restaurantId,
     state.phone,
+    nombre,
     JSON.stringify(items),
     total,
+    pickupTime,
     Date.now(),
   );
   return Number(result.lastInsertRowid);

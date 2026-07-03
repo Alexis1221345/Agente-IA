@@ -10,6 +10,7 @@ export interface OrderItem {
 export interface OrderData {
   items: OrderItem[];
   pendingCategory?: string; // category currently being browsed
+  pickupTime?: string;      // HH:MM 24h — set when restaurant is closed (pre-order)
 }
 
 export function orderTotal(items: OrderItem[]): number {

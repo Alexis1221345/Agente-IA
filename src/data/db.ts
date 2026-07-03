@@ -40,12 +40,18 @@ function createDb(): DatabaseSync {
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       restaurant_id TEXT NOT NULL,
       phone         TEXT NOT NULL,
+      nombre        TEXT,
       items         TEXT NOT NULL,
       total         INTEGER NOT NULL,
+      pickup_time   TEXT,
       status        TEXT NOT NULL DEFAULT 'pending',
       created_at    INTEGER NOT NULL
     );
   `);
+
+  // Migrate existing orders table — add columns if they were created before this version
+  try { db.exec("ALTER TABLE orders ADD COLUMN nombre TEXT"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE orders ADD COLUMN pickup_time TEXT"); } catch { /* already exists */ }
 
   return db;
 }

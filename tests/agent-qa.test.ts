@@ -59,7 +59,7 @@ describe("buildSystemPrompt — grounding", () => {
 
   it("contains the anti-invention rule", () => {
     const prompt = buildSystemPrompt(CAFETERIA);
-    expect(prompt).toMatch(/no\s+lo\s+inventes|no inventes|anti.invenci[oó]n/i);
+    expect(prompt).toMatch(/no\s+lo\s+inventes|no inventes|anti.invenci[oó]n|NUNCA inventes/i);
   });
 
   it("offers to confirm unknown data instead of inventing", () => {

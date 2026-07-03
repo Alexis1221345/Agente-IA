@@ -62,3 +62,21 @@ function _nextOpenDay(config: RestaurantConfig, base: dayjs.Dayjs): string {
   }
   return "próximamente";
 }
+
+/** Returns the next open day's schedule and human-readable label, or null if none found. */
+export function nextOpenDaySchedule(
+  config: RestaurantConfig,
+  now?: dayjs.Dayjs,
+): { open: string; close: string; label: string } | null {
+  const base = (now ?? dayjs()).tz(config.timezone);
+  for (let i = 1; i <= 7; i++) {
+    const next = base.add(i, "day");
+    const key = DOW_KEY[next.day()];
+    const s = config.schedule[key];
+    if (s) {
+      const label = i === 1 ? "mañana" : ES_DAYS[key]?.toLowerCase() ?? key;
+      return { open: s.open, close: s.close, label };
+    }
+  }
+  return null;
+}
