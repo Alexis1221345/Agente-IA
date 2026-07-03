@@ -49,9 +49,11 @@ function createDb(): DatabaseSync {
     );
   `);
 
-  // Migrate existing orders table — add columns if they were created before this version
+  // Migrate existing tables — add columns added after initial release
   try { db.exec("ALTER TABLE orders ADD COLUMN nombre TEXT"); } catch { /* already exists */ }
   try { db.exec("ALTER TABLE orders ADD COLUMN pickup_time TEXT"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE orders ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE reservations ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
 
   return db;
 }

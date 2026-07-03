@@ -6,6 +6,7 @@ import { ReservationAgent } from "../core/agent.js";
 import { ClaudeLLMClient } from "../integrations/llm/claude.js";
 import { restaurantRegistry } from "../config/demo.js";
 import { parseWebhookPayload, parseWebhookMediaSender, sendWhatsAppMessage } from "../channels/whatsapp.js";
+import { startReminderScheduler } from "../core/reminders.js";
 import { randomInt } from "crypto";
 import { type OrderItem } from "../business/order.js";
 
@@ -204,4 +205,7 @@ app.listen({ port: PORT, host: "0.0.0.0" }, (err, address) => {
     }, 10 * 60 * 1000);
     console.log(`⏰  Keep-alive activo → ${publicUrl}/health cada 10 min`);
   }
+
+  // Start proactive reminder scheduler
+  if (cfg) startReminderScheduler(cfg, RESTAURANT_ID);
 });
