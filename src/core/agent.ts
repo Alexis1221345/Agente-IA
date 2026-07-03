@@ -68,14 +68,14 @@ export class ReservationAgent {
 
     const state = loadConversation(phone, restaurantId);
 
-    // First-ever message → show welcome and set greeting status
+    // First-ever message → ask for name before showing options
     if (state.history.length === 0) {
-      state.status = "greeting";
+      state.status = "asking_name";
       state.history.push({ role: "user", content: text });
-      const welcome = buildWelcome(config);
-      state.history.push({ role: "assistant", content: welcome });
+      const nameQuestion = `¡Hola! 😊 Bienvenid@ a *${config.name}*, es un placer atenderte.\n¿Con quién tengo el gusto?`;
+      state.history.push({ role: "assistant", content: nameQuestion });
       saveConversation(state);
-      return welcome;
+      return nameQuestion;
     }
 
     state.history.push({ role: "user", content: text });
@@ -162,14 +162,27 @@ export class ReservationAgent {
       return await this.handleWebOrder(state, text, config);
     }
 
+    // ── Respuesta al "¿con quién tengo el gusto?" ────────────────────────────
+    if (state.status === "asking_name") {
+      const name = extractName(text);
+      if (name) {
+        state.data.guestName = name;
+        // Pre-fill reservation nombre so they don't have to repeat it
+        state.data.nombre = name;
+      }
+      state.status = "greeting";
+      const welcome = buildWelcome(config, state.data.guestName);
+      return welcome;
+    }
+
     const intent = await this.getIntent(state, text, config);
 
     // ── Comando global: R / r / 0 → volver al menú principal ────────────────
     if ((intent.isReset || RESET_CMD.test(text)) && state.status !== "greeting") {
+      clearData(state);
       state.status = "greeting";
-      state.data = {};
       state.history = [{ role: "user", content: text }];
-      return buildWelcome(config);
+      return buildWelcome(config, state.data.guestName);
     }
 
     // After confirmed/escalated/cancelled handle appropriately
@@ -181,13 +194,13 @@ export class ReservationAgent {
         // Fall through to field extraction
       } else if (state.status === "confirmed" && (intent.isFarewell || FAREWELL_WORDS.test(text))) {
         state.status = "greeting";
-        state.data = {};
-        return "¡Con mucho gusto! 😊 Que lo disfrutes. Si necesitas algo más, aquí estoy.";
+        clearData(state);
+        return `¡Con mucho gusto${state.data.guestName ? `, *${state.data.guestName}*` : ""}! 😊 Que lo disfrutes. Si necesitas algo más, aquí estoy.`;
       } else {
         // Returning message after completed/cancelled flow — reset data but keep history
         // so the intent routing below handles the message naturally (no welcome splash)
         state.status = "greeting";
-        state.data = {};
+        clearData(state);
       }
     }
 
@@ -230,7 +243,7 @@ export class ReservationAgent {
         // Fall through to field extraction — any data already given gets extracted
       } else if (GREETING_WORDS.test(text)) {
         // User says "hola" with no specific intent — they've been here before, show brief options
-        return buildReturnGreeting(config);
+        return buildReturnGreeting(config, state.data.guestName);
       } else {
         // Unknown intent: answer as Q&A without changing status
         return await this.answerQuestion(state, text, config);
@@ -267,13 +280,13 @@ export class ReservationAgent {
 
     // User abandons the in-progress reservation and may switch to ordering
     if (intent.isAbandon && (state.status === "collecting" || state.status === "confirming")) {
-      state.data = {};
+      clearData(state);
       if (config.sheetsId && intent.isOrder) {
         state.status = "ordering_ask";
         return `Sin problema. 😊\n\n${await this.buildOrderingAskMessage(config)}`;
       }
       state.status = "greeting";
-      return buildReturnGreeting(config);
+      return buildReturnGreeting(config, state.data.guestName);
     }
 
     // Cancellation intent mid-flow (collecting or confirming)
@@ -530,7 +543,7 @@ export class ReservationAgent {
     }
 
     if (intent.isReject || intent.isAbandon || CANCEL_WORDS.test(text)) {
-      state.data = {};
+      clearData(state);
       if (config.sheetsId && intent.isOrder) {
         state.status = "ordering_ask";
         return `Sin problema, olvidamos la reserva. 😊\n\n${await this.buildOrderingAskMessage(config)}`;
@@ -637,7 +650,7 @@ export class ReservationAgent {
         }
       }
       state.status = "greeting";
-      state.data = {};
+      clearData(state);
       return (
         `Listo, tu reserva *${formatResId(target.id)}* ha sido cancelada. ✅\n` +
         `Si deseas hacer una nueva reserva, con gusto te ayudo. 😊`
@@ -646,7 +659,7 @@ export class ReservationAgent {
 
     if (CANCEL_WORDS.test(text)) {
       state.status = "greeting";
-      state.data = {};
+      clearData(state);
       return "Sin problema, tu reserva sigue activa. ¿Hay algo más en lo que pueda ayudarte? 😊";
     }
 
@@ -1056,13 +1069,13 @@ export class ReservationAgent {
     if (intent.isConfirm || CONFIRM_WORDS.test(text)) {
       if (order.items.length === 0) {
         state.status = "greeting";
-        return buildWelcome(config);
+        return buildWelcome(config, state.data.guestName);
       }
       const pickupTime = order.pickupTime;
       const orderId = saveOrder(state);
       const orderCode = formatOrderId(orderId);
       state.status = "confirmed";
-      state.data = {};
+      clearData(state);
 
       const pickupLine = pickupTime
         ? `🕐 Para recoger a las *${formatTimeDisplay(pickupTime)}*\n`
@@ -1204,15 +1217,40 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function buildWelcome(config: RestaurantConfig): string {
+/** Resets reservation/order data while keeping the customer's name across flows. */
+function clearData(state: { data: import("../business/reservation.js").ReservationData }): void {
+  state.data = { guestName: state.data.guestName };
+}
+
+/**
+ * Tries to extract a person's name from a raw text message.
+ * Strips common intro phrases (e.g. "me llamo", "soy") and title-cases the result.
+ * Returns null if the result looks too short, too long, or like a command.
+ */
+function extractName(text: string): string | null {
+  const clean = text
+    .trim()
+    .replace(/^(?:hola[,!]?\s*)?(?:soy|me\s+llamo|mi\s+nombre\s+(?:es|de)\s+)?/i, "")
+    .trim();
+  if (clean.length < 2 || clean.length > 50 || /^[0-9]/.test(clean)) return null;
+  // Title-case each word, take first 3 words max
+  return clean
+    .split(/\s+/)
+    .slice(0, 3)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function buildWelcome(config: RestaurantConfig, name?: string): string {
   const hasMenu = Boolean(config.sheetsId);
   const status = currentOpenStatus(config);
   const statusLine = status.isOpen
     ? `🟢 Abiertos hasta las ${status.todaySchedule!.close} hrs`
     : `🔴 Cerrados${status.nextOpen ? ` — abrimos ${status.nextOpen}` : ""}`;
 
+  const greeting = name ? `¡Mucho gusto, *${name}*! ☕ Me da mucho gusto atenderte.` : `¡Bienvenid@ a *${config.name}*! ☕ Me da mucho gusto atenderte.`;
   return (
-    `¡Bienvenid@ a *${config.name}*! ☕ Me da mucho gusto atenderte.\n` +
+    `${greeting}\n` +
     `${statusLine}\n\n` +
     `¿Con qué te puedo ayudar hoy?\n\n` +
     `  1️⃣  Hacer una reserva\n` +
@@ -1222,15 +1260,16 @@ function buildWelcome(config: RestaurantConfig): string {
   );
 }
 
-function buildReturnGreeting(config: RestaurantConfig): string {
+function buildReturnGreeting(config: RestaurantConfig, name?: string): string {
   const hasMenu = Boolean(config.sheetsId);
   const status = currentOpenStatus(config);
   const statusLine = status.isOpen
     ? `🟢 Abiertos hasta las ${status.todaySchedule!.close} hrs`
     : `🔴 Cerrados${status.nextOpen ? ` — abrimos ${status.nextOpen}` : ""}`;
 
+  const hi = name ? `¡Hola de nuevo, *${name}*! 😊` : `¡Hola de nuevo! 😊`;
   return (
-    `¡Hola de nuevo! 😊 ${statusLine}\n\n` +
+    `${hi} ${statusLine}\n\n` +
     `¿En qué más te puedo ayudar?\n\n` +
     `  1️⃣  Hacer una reserva\n` +
     `  2️⃣  Cancelar una reserva\n` +
@@ -1300,7 +1339,7 @@ function buildContextReminder(
         back
       );
     default:
-      return buildWelcome(config);
+      return buildReturnGreeting(config, state.data.guestName);
   }
 }
 

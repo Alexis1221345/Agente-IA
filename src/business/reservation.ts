@@ -1,7 +1,8 @@
 import type { OrderData } from "./order.js";
 
 export type ReservationStatus =
-  | "greeting"                 // first contact — showing welcome + options
+  | "asking_name"               // first contact — waiting for customer's name
+  | "greeting"                 // name collected — showing welcome + options
   | "collecting"               // gathering reservation fields
   | "confirming"               // showing summary, waiting for explicit "sí"
   | "confirmed"                // written to calendar
@@ -18,6 +19,7 @@ export type ReservationStatus =
   | "ordering_preorder_time";  // restaurant closed — waiting for customer's pickup time
 
 export interface ReservationData {
+  guestName?: string;  // how to address this customer (persists across flows)
   fecha?: string;      // YYYY-MM-DD
   hora?: string;       // HH:MM (24h)
   personas?: number;
