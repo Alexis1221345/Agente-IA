@@ -184,10 +184,10 @@ export class ReservationAgent {
         state.data = {};
         return "¡Con mucho gusto! 😊 Que lo disfrutes. Si necesitas algo más, aquí estoy.";
       } else {
+        // Returning message after completed/cancelled flow — reset data but keep history
+        // so the intent routing below handles the message naturally (no welcome splash)
         state.status = "greeting";
         state.data = {};
-        state.history = [{ role: "user", content: text }];
-        return buildWelcome(config);
       }
     }
 
@@ -228,6 +228,9 @@ export class ReservationAgent {
       if (intent.isReservation || /^1$/.test(text.trim())) {
         state.status = "collecting";
         // Fall through to field extraction — any data already given gets extracted
+      } else if (GREETING_WORDS.test(text)) {
+        // User says "hola" with no specific intent — they've been here before, show brief options
+        return buildReturnGreeting(config);
       } else {
         // Unknown intent: answer as Q&A without changing status
         return await this.answerQuestion(state, text, config);
@@ -270,7 +273,7 @@ export class ReservationAgent {
         return `Sin problema. 😊\n\n${await this.buildOrderingAskMessage(config)}`;
       }
       state.status = "greeting";
-      return buildWelcome(config);
+      return buildReturnGreeting(config);
     }
 
     // Cancellation intent mid-flow (collecting or confirming)
@@ -1205,17 +1208,34 @@ function buildWelcome(config: RestaurantConfig): string {
   const hasMenu = Boolean(config.sheetsId);
   const status = currentOpenStatus(config);
   const statusLine = status.isOpen
-    ? `🟢 Estamos abiertos hasta las ${status.todaySchedule!.close} hrs`
-    : `🔴 Estamos cerrados${status.nextOpen ? ` — abrimos ${status.nextOpen}` : ""}`;
+    ? `🟢 Abiertos hasta las ${status.todaySchedule!.close} hrs`
+    : `🔴 Cerrados${status.nextOpen ? ` — abrimos ${status.nextOpen}` : ""}`;
 
   return (
-    `¡Hola! Qué gusto saludarte desde *${config.name}* ☕\n` +
+    `¡Bienvenid@ a *${config.name}*! ☕ Me da mucho gusto atenderte.\n` +
     `${statusLine}\n\n` +
-    `¿En qué te puedo ayudar hoy?\n\n` +
+    `¿Con qué te puedo ayudar hoy?\n\n` +
     `  1️⃣  Hacer una reserva\n` +
     `  2️⃣  Cancelar una reserva\n` +
     (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
-    `\nO cuéntame tu duda y te ayudo. 😊`
+    `\nO cuéntame tu duda y con gusto te respondo 😊`
+  );
+}
+
+function buildReturnGreeting(config: RestaurantConfig): string {
+  const hasMenu = Boolean(config.sheetsId);
+  const status = currentOpenStatus(config);
+  const statusLine = status.isOpen
+    ? `🟢 Abiertos hasta las ${status.todaySchedule!.close} hrs`
+    : `🔴 Cerrados${status.nextOpen ? ` — abrimos ${status.nextOpen}` : ""}`;
+
+  return (
+    `¡Hola de nuevo! 😊 ${statusLine}\n\n` +
+    `¿En qué más te puedo ayudar?\n\n` +
+    `  1️⃣  Hacer una reserva\n` +
+    `  2️⃣  Cancelar una reserva\n` +
+    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
+    `\nO cuéntame tu duda 🙌`
   );
 }
 
