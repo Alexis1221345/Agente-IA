@@ -449,7 +449,13 @@ export class ReservationAgent {
     text: string,
     config: RestaurantConfig,
   ): Promise<string> {
-    if (CONFIRM_WORDS.test(text)) {
+    // Also treat "confirm word + gracias" as confirmation (e.g. "así está perfecto muchas gracias")
+    const IMPLICIT_CONFIRM =
+      /\b(sí|si|yes|confirmo|dale|claro|ok|okay|listo|perfecto|sale|está\s+bien|esta\s+bien|de\s+acuerdo|correcto|adelante|as[ií]\s+est[aá])\b/i;
+    const isImplicitConfirm =
+      IMPLICIT_CONFIRM.test(text) && /\b(gracias|thank)\b/i.test(text);
+
+    if (CONFIRM_WORDS.test(text) || isImplicitConfirm) {
       // Save to DB first to get the reservation ID, then sync to Calendar
       const resId = saveReservation(state);
       const resCode = formatResId(resId);
