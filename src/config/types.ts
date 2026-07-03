@@ -5,6 +5,7 @@ export interface DaySchedule {
 
 export interface RestaurantConfig {
   id: string;
+  phoneNumberId?: string;  // Meta phone_number_id for routing (multi-tenant)
   name: string;
   timezone: string;            // IANA, e.g. "America/Mexico_City"
   schedule: Record<string, DaySchedule | null>; // "monday"..."sunday", null = closed

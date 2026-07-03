@@ -2,6 +2,7 @@ export interface IncomingWhatsAppMessage {
   from: string;   // phone number with country code, e.g. "521XXXXXXXXXX"
   body: string;
   messageId: string;
+  phoneNumberId?: string; // Meta phone_number_id from webhook metadata (multi-tenant routing)
 }
 
 /**
@@ -29,10 +30,17 @@ export function parseWebhookPayload(body: unknown): IncomingWhatsAppMessage | nu
     if (typeof text?.body !== "string" || !text.body.trim()) return null;
     if (typeof msg.id !== "string") return null;
 
+    const metadata = value?.metadata as Record<string, unknown> | undefined;
+    const rawPhoneNumberId = metadata?.phone_number_id;
+    const phoneNumberId = typeof rawPhoneNumberId === "string" && rawPhoneNumberId.trim()
+      ? rawPhoneNumberId.trim()
+      : undefined;
+
     return {
       from: msg.from,
       body: text.body,
       messageId: msg.id,
+      ...(phoneNumberId !== undefined ? { phoneNumberId } : {}),
     };
   } catch {
     return null;
@@ -79,10 +87,15 @@ function normalizePhoneForSend(phone: string): string {
 
 /**
  * Sends a text message via Meta Cloud API (WhatsApp Business).
- * Requires META_PHONE_NUMBER_ID and META_ACCESS_TOKEN in environment.
+ * Requires META_ACCESS_TOKEN in environment.
+ * @param fromPhoneNumberId - Override the sending phone number ID. Falls back to META_PHONE_NUMBER_ID env var.
  */
-export async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
-  const phoneNumberId = process.env.META_PHONE_NUMBER_ID;
+export async function sendWhatsAppMessage(
+  to: string,
+  text: string,
+  fromPhoneNumberId?: string,
+): Promise<void> {
+  const phoneNumberId = fromPhoneNumberId ?? process.env.META_PHONE_NUMBER_ID;
   const accessToken = process.env.META_ACCESS_TOKEN;
 
   if (!phoneNumberId || !accessToken) {

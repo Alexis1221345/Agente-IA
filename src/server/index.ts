@@ -7,12 +7,15 @@ import { ClaudeLLMClient } from "../integrations/llm/claude.js";
 import { restaurantRegistry } from "../config/demo.js";
 import { parseWebhookPayload, parseWebhookMediaSender, sendWhatsAppMessage } from "../channels/whatsapp.js";
 import { startReminderScheduler } from "../core/reminders.js";
+import { getMasterConfigClient } from "../integrations/sheets/master-config-client.js";
 import { randomInt } from "crypto";
 import { type OrderItem } from "../business/order.js";
+import type { RestaurantConfig } from "../config/types.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const VERIFY_TOKEN = process.env.META_VERIFY_TOKEN ?? "";
 const RESTAURANT_ID = process.env.RESTAURANT_ID ?? "demo";
+const MASTER_SHEET_ID = process.env.MASTER_SHEET_ID;
 
 // ── Startup checks ────────────────────────────────────────────
 const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -20,6 +23,30 @@ if (!apiKey) { console.error("Falta ANTHROPIC_API_KEY en .env"); process.exit(1)
 if (!VERIFY_TOKEN) { console.error("Falta META_VERIFY_TOKEN en .env"); process.exit(1); }
 if (!process.env.META_ACCESS_TOKEN) { console.error("Falta META_ACCESS_TOKEN en .env"); process.exit(1); }
 if (!process.env.META_PHONE_NUMBER_ID) { console.error("Falta META_PHONE_NUMBER_ID en .env"); process.exit(1); }
+
+// ── Multi-tenant master config ─────────────────────────────────
+const credJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON?.trim();
+const masterClient = MASTER_SHEET_ID && credJson
+  ? getMasterConfigClient(credJson, MASTER_SHEET_ID)
+  : null;
+
+/**
+ * Returns the RestaurantConfig for a given Meta phone_number_id.
+ * If a master Sheet is configured, queries it first.
+ * Falls back to the env-based restaurantRegistry.
+ */
+async function getRestaurantConfig(phoneNumberId: string): Promise<RestaurantConfig | null> {
+  if (masterClient) {
+    try {
+      const cfg = await masterClient.getByPhoneNumberId(phoneNumberId);
+      if (cfg) return cfg;
+    } catch (err) {
+      console.error("[server] Error leyendo Sheet maestro — usando fallback de env:", err);
+    }
+  }
+  // Fallback: look up by env RESTAURANT_ID or by any registered restaurant
+  return restaurantRegistry[RESTAURANT_ID] ?? null;
+}
 
 // ── Order drafts (in-memory, TTL 1 hora) ─────────────────────
 // Guardan pedidos de la web con un código corto hasta que el cliente
@@ -150,10 +177,28 @@ app.post("/webhook", async (req, reply) => {
 
   let parsedMsg = parseWebhookPayload(req.body);
   if (!parsedMsg) {
+    // For media messages we still need to know which phone_number_id received the message
+    // so we can route the reply correctly. Parse it from the raw payload.
     const mediaSender = parseWebhookMediaSender(req.body);
     if (mediaSender) {
+      // Best-effort extraction of phone_number_id for media routing
+      let mediaPnid: string | undefined;
       try {
-        await sendWhatsAppMessage(mediaSender, "Solo puedo procesar mensajes de texto 😊 ¿En qué te puedo ayudar?");
+        const p = req.body as Record<string, unknown>;
+        const entry = (p.entry as Record<string, unknown>[])?.[0];
+        const change = (entry?.changes as Record<string, unknown>[])?.[0];
+        const value = change?.value as Record<string, unknown> | undefined;
+        const metadata = value?.metadata as Record<string, unknown> | undefined;
+        const raw = metadata?.phone_number_id;
+        if (typeof raw === "string" && raw.trim()) mediaPnid = raw.trim();
+      } catch { /* ignore */ }
+
+      try {
+        await sendWhatsAppMessage(
+          mediaSender,
+          "Solo puedo procesar mensajes de texto 😊 ¿En qué te puedo ayudar?",
+          mediaPnid,
+        );
       } catch (err) {
         console.error("[webhook] Error enviando respuesta a media:", err);
       }
@@ -176,12 +221,21 @@ app.post("/webhook", async (req, reply) => {
   }
 
   const msg = parsedMsg;
-  console.log(`[webhook] Mensaje de ${msg.from}: "${msg.body.slice(0, 80)}"`);
+  const incomingPnid = msg.phoneNumberId ?? "";
+  console.log(`[webhook] Mensaje de ${msg.from} (pnid:${incomingPnid}): "${msg.body.slice(0, 80)}"`);
+
+  // ── Multi-tenant routing ──────────────────────────────────────
+  const config = await getRestaurantConfig(incomingPnid);
+  if (!config) {
+    console.error(`[webhook] Sin configuración para phone_number_id="${incomingPnid}" — mensaje ignorado`);
+    return;
+  }
+  const restaurantId = config.id;
 
   try {
-    const response = await agent.handleMessage(msg.from, msg.body, RESTAURANT_ID);
+    const response = await agent.handleMessage(msg.from, msg.body, restaurantId);
     console.log(`[webhook] Respuesta a ${msg.from}: "${response.slice(0, 120)}${response.length > 120 ? "…" : ""}"`);
-    await sendWhatsAppMessage(msg.from, response);
+    await sendWhatsAppMessage(msg.from, response, incomingPnid || undefined);
     console.log(`[webhook] Mensaje enviado OK a ${msg.from}`);
   } catch (err) {
     console.error("[webhook] Error procesando mensaje:", err);
@@ -190,13 +244,28 @@ app.post("/webhook", async (req, reply) => {
 
 app.get("/health", async () => ({ status: "ok", restaurant: restaurantRegistry[RESTAURANT_ID]?.name }));
 
-app.listen({ port: PORT, host: "0.0.0.0" }, (err, address) => {
+app.listen({ port: PORT, host: "0.0.0.0" }, async (err, address) => {
   if (err) { app.log.error(err); process.exit(1); }
   const cfg = restaurantRegistry[RESTAURANT_ID];
   console.log(`\n🚀  Servidor en ${address}`);
-  console.log(`🍽️   Restaurante: ${cfg?.name} (${RESTAURANT_ID})`);
+  console.log(`🍽️   Restaurante (fallback): ${cfg?.name} (${RESTAURANT_ID})`);
   console.log(`📅  Calendario: ${cfg?.calendarId}`);
   console.log(`📲  Webhook: ${address}/webhook\n`);
+
+  // ── Multi-tenant startup info ─────────────────────────────────
+  if (masterClient) {
+    try {
+      const configs = await masterClient.getConfigs();
+      console.log(`🏪  Sheet maestro: ${configs.size} restaurante(s) cargado(s)`);
+      for (const [pnid, rc] of configs) {
+        console.log(`    • ${rc.name} (${rc.id}) → pnid:${pnid}`);
+      }
+    } catch (err) {
+      console.error("[server] No se pudo leer el Sheet maestro al arrancar:", err);
+    }
+  } else {
+    console.log("ℹ️   Sin Sheet maestro — usando configuración de .env");
+  }
 
   const publicUrl = process.env.RENDER_EXTERNAL_URL;
   if (publicUrl) {
@@ -206,6 +275,6 @@ app.listen({ port: PORT, host: "0.0.0.0" }, (err, address) => {
     console.log(`⏰  Keep-alive activo → ${publicUrl}/health cada 10 min`);
   }
 
-  // Start proactive reminder scheduler
+  // Start proactive reminder scheduler (uses fallback env config)
   if (cfg) startReminderScheduler(cfg, RESTAURANT_ID);
 });

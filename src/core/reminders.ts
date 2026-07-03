@@ -95,7 +95,7 @@ async function checkReservationReminders(
   for (const row of rows) {
     try {
       const msg = buildReservationReminder(config, row);
-      await sendWhatsAppMessage(row.phone, msg);
+      await sendWhatsAppMessage(row.phone, msg, config.phoneNumberId);
       db.prepare("UPDATE reservations SET reminder_sent = 1 WHERE id = ?").run(row.id);
       console.log(`[reminders] Recordatorio de reserva #${row.id} enviado → ${row.phone}`);
     } catch (err) {
@@ -134,7 +134,7 @@ async function checkOrderReminders(
   for (const row of rows) {
     try {
       const msg = buildOrderReminder(config, row);
-      await sendWhatsAppMessage(row.phone, msg);
+      await sendWhatsAppMessage(row.phone, msg, config.phoneNumberId);
       db.prepare("UPDATE orders SET reminder_sent = 1 WHERE id = ?").run(row.id);
       console.log(`[reminders] Recordatorio de pedido #${row.id} enviado → ${row.phone}`);
     } catch (err) {
