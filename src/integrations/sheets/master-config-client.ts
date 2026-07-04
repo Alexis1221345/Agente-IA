@@ -29,6 +29,7 @@ const COL = {
   sabado:             18,
   domingo:            19,
   faq:                20,
+  website_url:        21,
 } as const;
 
 /** "HH:MM-HH:MM" → DaySchedule | null */
@@ -85,6 +86,7 @@ function rowToConfig(row: string[]): RestaurantConfig | null {
     calendarId:          row[COL.calendar_id]?.trim()         || "",
     sheetsId:            row[COL.menu_sheet_id]?.trim()       || undefined,
     menuWebUrl:          row[COL.menu_web_url]?.trim()        || undefined,
+    websiteUrl:          row[COL.website_url]?.trim()         || undefined,
     humanPhone:          row[COL.human_phone]?.trim()         || "",
     cancellationPolicy:  row[COL.cancellation_policy]?.trim() || "",
     slotDurationMinutes: Number(row[COL.slot_duration]  ?? 90)  || 90,
@@ -125,7 +127,7 @@ export class MasterConfigClient {
 
     const res = await this.sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: "Restaurantes!A2:V100",
+      range: "Restaurantes!A2:W100",
     });
 
     const rows = (res.data.values ?? []) as string[][];

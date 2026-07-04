@@ -534,11 +534,13 @@ export class ReservationAgent {
 
       state.status = "confirmed";
 
+      const websiteLineRes = config.websiteUrl ? `\n\n🌐 Visítanos en ${config.websiteUrl}` : "";
       return (
         `¡Quedó, ${state.data.nombre}! Te esperamos el ${formatDateNice(state.data.fecha!)} a las *${formatTimeDisplay(state.data.hora!)}*, mesa para ${state.data.personas}.\n` +
         `Tu folio por si lo necesitas: *${resCode}*\n` +
         `${config.cancellationPolicy}\n\n` +
-        `Cualquier cosa, escríbeme con confianza ☕`
+        `Cualquier cosa, escríbeme con confianza ☕` +
+        websiteLineRes
       );
     }
 
@@ -1080,11 +1082,13 @@ export class ReservationAgent {
       const pickupLine = pickupTime
         ? `🕐 Para recoger a las *${formatTimeDisplay(pickupTime)}*\n`
         : ``;
+      const websiteLineOrder = config.websiteUrl ? `\n\n🌐 Visítanos en ${config.websiteUrl}` : "";
       return (
         `¡Listo! 🎉 Tu pedido está registrado en *${config.name}*.\n` +
         `🔖 Número de pedido: *${orderCode}*\n` +
         pickupLine +
-        `En breve el equipo lo prepara. ¡Gracias! ☕`
+        `En breve el equipo lo prepara. ¡Gracias! ☕` +
+        websiteLineOrder
       );
     }
 

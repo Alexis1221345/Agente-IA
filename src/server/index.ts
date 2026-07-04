@@ -230,6 +230,8 @@ app.post("/webhook", async (req, reply) => {
     console.error(`[webhook] Sin configuración para phone_number_id="${incomingPnid}" — mensaje ignorado`);
     return;
   }
+  // Sync master-sheet config into the agent's registry so it can look it up by id
+  restaurantRegistry[config.id] = config;
   const restaurantId = config.id;
 
   try {

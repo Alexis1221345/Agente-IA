@@ -20,4 +20,5 @@ export interface RestaurantConfig {
   faq: Record<string, string>; // question pattern → answer
   sheetsId?: string;           // Google Sheets ID for the menu
   menuWebUrl?: string;         // public URL where customers can browse the menu
+  websiteUrl?: string;         // restaurant's main website URL (shown after confirmations)
 }

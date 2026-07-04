@@ -58,5 +58,6 @@ export function loadRestaurantFromEnv(): RestaurantConfig {
     faq: parseFaq(process.env.RESTAURANT_FAQ),
     sheetsId: process.env.GOOGLE_SHEETS_ID?.trim() || undefined,
     menuWebUrl: process.env.MENU_WEB_URL?.trim() || undefined,
+    websiteUrl: process.env.RESTAURANT_WEBSITE_URL?.trim() || undefined,
   };
 }
