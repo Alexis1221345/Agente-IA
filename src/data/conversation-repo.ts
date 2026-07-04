@@ -181,6 +181,19 @@ export function resetConversation(phone: string): void {
   db.prepare("DELETE FROM conversations WHERE phone = ?").run(phone);
 }
 
+/** Returns the most recent customer name for a phone, checking reservations then orders. */
+export function findLastCustomerName(phone: string, restaurantId: string): string | null {
+  const res = db
+    .prepare("SELECT nombre FROM reservations WHERE phone = ? AND restaurant_id = ? ORDER BY created_at DESC LIMIT 1")
+    .get(phone, restaurantId) as { nombre: string } | undefined;
+  if (res?.nombre) return res.nombre;
+
+  const ord = db
+    .prepare("SELECT nombre FROM orders WHERE phone = ? AND restaurant_id = ? AND nombre IS NOT NULL ORDER BY created_at DESC LIMIT 1")
+    .get(phone, restaurantId) as { nombre: string } | undefined;
+  return ord?.nombre ?? null;
+}
+
 function toRecord(row: Record<string, unknown>): ReservationRecord {
   return {
     id: row.id as number,

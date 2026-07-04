@@ -16,6 +16,7 @@ import {
   findReservationById,
   findReservationByNameAndDate,
   cancelReservationById,
+  findLastCustomerName,
   formatResId,
   parseResId,
   type ConversationState,
@@ -68,8 +69,21 @@ export class ReservationAgent {
 
     const state = loadConversation(phone, restaurantId);
 
-    // First-ever message → ask for name before showing options
+    // First message in this session (new or reset conversation)
     if (state.history.length === 0) {
+      const pastName = findLastCustomerName(phone, restaurantId);
+      if (pastName) {
+        // Returning customer — skip name question, go straight to options
+        state.data.guestName = pastName;
+        state.data.nombre = pastName;
+        state.status = "greeting";
+        state.history.push({ role: "user", content: text });
+        const welcome = buildReturnWelcome(config, pastName);
+        state.history.push({ role: "assistant", content: welcome });
+        saveConversation(state);
+        return welcome;
+      }
+      // New customer — ask for name first
       state.status = "asking_name";
       state.history.push({ role: "user", content: text });
       const nameQuestion = `¡Hola! 😊 Bienvenid@ a *${config.name}*, es un placer atenderte.\n¿Con quién tengo el gusto?`;
@@ -1257,6 +1271,24 @@ function buildWelcome(config: RestaurantConfig, name?: string): string {
     `${greeting}\n` +
     `${statusLine}\n\n` +
     `¿Con qué te puedo ayudar hoy?\n\n` +
+    `  1️⃣  Hacer una reserva\n` +
+    `  2️⃣  Cancelar una reserva\n` +
+    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
+    `\nO cuéntame tu duda y con gusto te respondo 😊`
+  );
+}
+
+function buildReturnWelcome(config: RestaurantConfig, name: string): string {
+  const hasMenu = Boolean(config.sheetsId);
+  const status = currentOpenStatus(config);
+  const statusLine = status.isOpen
+    ? `🟢 Abiertos hasta las ${status.todaySchedule!.close} hrs`
+    : `🔴 Cerrados${status.nextOpen ? ` — abrimos ${status.nextOpen}` : ""}`;
+
+  return (
+    `¡Bienvenido de regreso, *${name}*! 🎉 Qué gusto verte de nuevo por aquí.\n` +
+    `${statusLine}\n\n` +
+    `¿En qué te puedo ayudar hoy?\n\n` +
     `  1️⃣  Hacer una reserva\n` +
     `  2️⃣  Cancelar una reserva\n` +
     (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
