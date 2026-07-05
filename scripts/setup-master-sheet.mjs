@@ -53,7 +53,7 @@ const HEADERS = [
   "calendar_id", "menu_sheet_id", "menu_web_url", "human_phone",
   "cancellation_policy", "slot_duration", "capacity", "quota", "max_group",
   "lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo",
-  "faq",
+  "faq", "website_url", "crm_webhook_url",
 ];
 
 async function main() {

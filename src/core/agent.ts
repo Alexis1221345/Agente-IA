@@ -28,6 +28,7 @@ import { buildSystemPrompt } from "./prompts.js";
 import { isQuestion } from "./qa-helpers.js";
 import { currentOpenStatus, nextOpenDaySchedule } from "../business/schedule.js";
 import { type OrderItem, formatOrderSummary, orderTotal } from "../business/order.js";
+import { getCRMClient } from "../integrations/sheets/crm-client.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -524,9 +525,10 @@ export class ReservationAgent {
     intent: MessageIntent,
   ): Promise<string> {
     if (intent.isConfirm || CONFIRM_WORDS.test(text)) {
-      // Save to DB first to get the reservation ID, then sync to Calendar
+      // Save to DB first to get the reservation ID, then sync to Calendar and Sheets
       const resId = saveReservation(state);
       const resCode = formatResId(resId);
+      this.appendReservationToSheets(config, resCode, state);
 
       try {
         const { eventId } = await this.calendar(config).createReservation({
@@ -1090,6 +1092,7 @@ export class ReservationAgent {
       const pickupTime = order.pickupTime;
       const orderId = saveOrder(state);
       const orderCode = formatOrderId(orderId);
+      this.appendOrderToSheets(config, orderCode, state);
       state.status = "confirmed";
       clearData(state);
 
@@ -1166,6 +1169,35 @@ export class ReservationAgent {
     }
 
     return reply;
+  }
+
+  private crmClient(config: RestaurantConfig) {
+    if (!config.sheetsId || !config.googleCredentialsPath) return null;
+    return getCRMClient(config.googleCredentialsPath, config.sheetsId);
+  }
+
+  private appendOrderToSheets(
+    config: RestaurantConfig,
+    orderCode: string,
+    state: ConversationState,
+  ): void {
+    const client = this.crmClient(config);
+    if (!client) return;
+    client
+      .appendOrder({ orderCode, restaurantName: config.name, state, timezone: config.timezone, crmWebhookUrl: config.crmWebhookUrl })
+      .catch((err) => console.error("[CRM] Failed to append order:", err));
+  }
+
+  private appendReservationToSheets(
+    config: RestaurantConfig,
+    resCode: string,
+    state: ConversationState,
+  ): void {
+    const client = this.crmClient(config);
+    if (!client) return;
+    client
+      .appendReservation({ resCode, restaurantName: config.name, state, timezone: config.timezone, crmWebhookUrl: config.crmWebhookUrl })
+      .catch((err) => console.error("[CRM] Failed to append reservation:", err));
   }
 
   private mergeFields(

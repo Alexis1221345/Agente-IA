@@ -30,6 +30,7 @@ const COL = {
   domingo:            19,
   faq:                20,
   website_url:        21,
+  crm_webhook_url:   22,
 } as const;
 
 /** "HH:MM-HH:MM" → DaySchedule | null */
@@ -87,6 +88,7 @@ function rowToConfig(row: string[]): RestaurantConfig | null {
     sheetsId:            row[COL.menu_sheet_id]?.trim()       || undefined,
     menuWebUrl:          row[COL.menu_web_url]?.trim()        || undefined,
     websiteUrl:          row[COL.website_url]?.trim()         || undefined,
+    crmWebhookUrl:       row[COL.crm_webhook_url]?.trim()    || undefined,
     humanPhone:          row[COL.human_phone]?.trim()         || "",
     cancellationPolicy:  row[COL.cancellation_policy]?.trim() || "",
     slotDurationMinutes: Number(row[COL.slot_duration]  ?? 90)  || 90,

@@ -21,4 +21,5 @@ export interface RestaurantConfig {
   sheetsId?: string;           // Google Sheets ID for the menu
   menuWebUrl?: string;         // public URL where customers can browse the menu
   websiteUrl?: string;         // restaurant's main website URL (shown after confirmations)
+  crmWebhookUrl?: string;      // optional webhook URL to push orders/reservations to the restaurant's CRM
 }
