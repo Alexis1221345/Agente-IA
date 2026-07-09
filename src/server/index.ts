@@ -66,8 +66,15 @@ registerWhatsAppRoutes(app, {
 
 app.get("/health", async () => ({ status: "ok", restaurant: restaurantRegistry[RESTAURANT_ID]?.name }));
 
-app.listen({ port: PORT, host: "0.0.0.0" }, async (err, address) => {
-  if (err) { app.log.error(err); process.exit(1); }
+let address: string;
+try {
+  address = await app.listen({ port: PORT, host: "0.0.0.0" });
+} catch (err) {
+  app.log.error(err);
+  process.exit(1);
+}
+
+{
   const cfg = restaurantRegistry[RESTAURANT_ID];
   console.log(`\n🚀  Servidor en ${address}`);
   console.log(`🍽️   Restaurante (fallback): ${cfg?.name} (${RESTAURANT_ID})`);
@@ -108,4 +115,4 @@ app.listen({ port: PORT, host: "0.0.0.0" }, async (err, address) => {
       new ClaudeLLMClient(apiKey),
     );
   }
-});
+}
