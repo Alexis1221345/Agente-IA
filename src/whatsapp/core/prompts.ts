@@ -1,4 +1,4 @@
-import type { RestaurantConfig } from "../config/types.js";
+import type { RestaurantConfig } from "../../shared/config/types.js";
 import { currentOpenStatus } from "../business/schedule.js";
 
 export function buildSystemPrompt(

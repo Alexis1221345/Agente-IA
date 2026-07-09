@@ -1,8 +1,8 @@
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
-import type { ILLMClient, MessageIntent } from "../integrations/llm/llm.interface.js";
-import type { RestaurantConfig } from "../config/types.js";
+import type { ILLMClient, MessageIntent } from "../../shared/llm/llm.interface.js";
+import type { RestaurantConfig } from "../../shared/config/types.js";
 import { getCalendarClient } from "../integrations/calendar/factory.js";
 import { getMenuClient, type MenuItem } from "../integrations/sheets/menu-client.js";
 import {

@@ -1,5 +1,5 @@
 import type { ReservationData, ReservationField } from "../business/reservation.js";
-import type { RestaurantConfig } from "../config/types.js";
+import type { RestaurantConfig } from "../../shared/config/types.js";
 
 export type NextAction =
   | { type: "ask"; field: ReservationField; question: string }

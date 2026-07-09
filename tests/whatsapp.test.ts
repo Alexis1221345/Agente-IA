@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseWebhookPayload } from "../src/channels/whatsapp.js";
+import { parseWebhookPayload } from "../src/whatsapp/channels/whatsapp.js";
 
 function makePayload(overrides: Record<string, unknown> = {}) {
   return {

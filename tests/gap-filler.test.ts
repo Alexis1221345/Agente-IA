@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { nextAction } from "../src/core/gap-filler.js";
-import { DEMO_RESTAURANT } from "../src/config/demo.js";
-import type { ReservationData } from "../src/business/reservation.js";
+import { nextAction } from "../src/whatsapp/core/gap-filler.js";
+import { DEMO_RESTAURANT } from "../src/shared/config/demo.js";
+import type { ReservationData } from "../src/whatsapp/business/reservation.js";
 
 const cfg = DEMO_RESTAURANT;
 

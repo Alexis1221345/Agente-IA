@@ -1,7 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ILLMClient, ExtractedFields, ExtractedOrderItems, RawOrderItem, MessageIntent } from "./llm.interface.js";
-import type { Message } from "../../data/conversation-repo.js";
-import type { ReservationData } from "../../business/reservation.js";
+import type {
+  ILLMClient,
+  ExtractedFields,
+  ExtractedOrderItems,
+  ExtractedReservationFields,
+  RawOrderItem,
+  MessageIntent,
+  Message,
+} from "./llm.interface.js";
 
 const CLASSIFY_TOOL: Anthropic.Tool = {
   name: "classify_intent",
@@ -131,7 +137,7 @@ export class ClaudeLLMClient implements ILLMClient {
     }
 
     const input = toolUse.input as Record<string, unknown>;
-    const fields: Partial<ReservationData> = {};
+    const fields: ExtractedReservationFields = {};
     const raw: Record<string, string> = {};
 
     if (typeof input.fecha === "string") {

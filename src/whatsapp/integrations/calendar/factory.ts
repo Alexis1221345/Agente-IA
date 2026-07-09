@@ -1,5 +1,5 @@
 import type { ICalendarClient } from "./calendar.interface.js";
-import type { RestaurantConfig } from "../../config/types.js";
+import type { RestaurantConfig } from "../../../shared/config/types.js";
 import { GoogleCalendarClient } from "./google.js";
 
 const clientCache = new Map<string, ICalendarClient>();

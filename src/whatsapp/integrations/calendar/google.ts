@@ -5,7 +5,7 @@ import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
 import type { ICalendarClient, SlotAvailability } from "./calendar.interface.js";
-import type { RestaurantConfig } from "../../config/types.js";
+import type { RestaurantConfig } from "../../../shared/config/types.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);

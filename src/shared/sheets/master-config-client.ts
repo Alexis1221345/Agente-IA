@@ -1,7 +1,7 @@
 import { google } from "googleapis";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { RestaurantConfig, DaySchedule } from "../../config/types.js";
+import type { RestaurantConfig, DaySchedule } from "../config/types.js";
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -31,6 +31,11 @@ const COL = {
   faq:                20,
   website_url:        21,
   crm_webhook_url:   22,
+  gbp_account_id:    23,
+  gbp_location_id:   24,
+  reviews_enabled:   25,
+  reviews_tono:      26,
+  reviews_poll_minutes: 27,
 } as const;
 
 /** "HH:MM-HH:MM" → DaySchedule | null */
@@ -98,6 +103,11 @@ function rowToConfig(row: string[]): RestaurantConfig | null {
     schedule,
     googleCredentialsPath: credJson || credPath || undefined,
     faq: parseFaq(row[COL.faq] ?? ""),
+    gbpAccountId:  row[COL.gbp_account_id]?.trim()  || undefined,
+    gbpLocationId: row[COL.gbp_location_id]?.trim() || undefined,
+    reviewsEnabled: /^(true|sí|si|yes|1)$/i.test(row[COL.reviews_enabled]?.trim() ?? ""),
+    reviewsTone:   row[COL.reviews_tono]?.trim()    || undefined,
+    reviewsPollMinutes: Number(row[COL.reviews_poll_minutes]?.trim()) || undefined,
   };
 }
 
@@ -129,7 +139,7 @@ export class MasterConfigClient {
 
     const res = await this.sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: "Restaurantes!A2:W100",
+      range: "Restaurantes!A2:AB100",
     });
 
     const rows = (res.data.values ?? []) as string[][];

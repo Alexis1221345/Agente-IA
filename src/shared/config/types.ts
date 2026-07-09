@@ -22,4 +22,9 @@ export interface RestaurantConfig {
   menuWebUrl?: string;         // public URL where customers can browse the menu
   websiteUrl?: string;         // restaurant's main website URL (shown after confirmations)
   crmWebhookUrl?: string;      // optional webhook URL to push orders/reservations to the restaurant's CRM
+  gbpAccountId?: string;       // Google Business Profile account ID (auto-reply to Google reviews)
+  gbpLocationId?: string;      // Google Business Profile location ID (auto-reply to Google reviews)
+  reviewsEnabled?: boolean;    // enable automatic replies to Google reviews
+  reviewsTone?: string;        // extra per-restaurant instructions for review replies
+  reviewsPollMinutes?: number; // how often to check for new reviews (per restaurant)
 }

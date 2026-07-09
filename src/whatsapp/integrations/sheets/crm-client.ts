@@ -1,7 +1,7 @@
 import { google } from "googleapis";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { RestaurantConfig } from "../../config/types.js";
+import type { RestaurantConfig } from "../../../shared/config/types.js";
 import type { ConversationState } from "../../data/conversation-repo.js";
 import { orderTotal } from "../../business/order.js";
 

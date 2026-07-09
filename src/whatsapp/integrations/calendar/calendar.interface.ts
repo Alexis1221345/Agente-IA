@@ -1,4 +1,4 @@
-import type { RestaurantConfig } from "../../config/types.js";
+import type { RestaurantConfig } from "../../../shared/config/types.js";
 
 export interface SlotAvailability {
   available: boolean;

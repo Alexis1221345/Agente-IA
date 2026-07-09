@@ -7,8 +7,8 @@
     "dev": "tsx watch src/server/index.ts",
     "start": "node dist/server/index.js",
     "build": "tsc",
-    "simulate": "tsx src/channels/cli.ts",
-    "simulate:reset": "tsx src/channels/cli.ts --reset",
+    "simulate": "tsx src/whatsapp/channels/cli.ts",
+    "simulate:reset": "tsx src/whatsapp/channels/cli.ts --reset",
     "test": "vitest run",
     "test:watch": "vitest",
     "setup:menu": "tsx scripts/setup-menu-sheet.ts"

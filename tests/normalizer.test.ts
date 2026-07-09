@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
-import { normalizeDate, normalizeTime } from "../src/business/normalizer.js";
+import { normalizeDate, normalizeTime } from "../src/whatsapp/business/normalizer.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);

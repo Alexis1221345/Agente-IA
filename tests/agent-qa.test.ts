@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { buildSystemPrompt, formatSchedule } from "../src/core/prompts.js";
-import { isQuestion } from "../src/core/qa-helpers.js";
-import type { RestaurantConfig } from "../src/config/types.js";
+import { buildSystemPrompt, formatSchedule } from "../src/whatsapp/core/prompts.js";
+import { isQuestion } from "../src/whatsapp/core/qa-helpers.js";
+import type { RestaurantConfig } from "../src/shared/config/types.js";
 
 const CAFETERIA: RestaurantConfig = {
   id: "test",

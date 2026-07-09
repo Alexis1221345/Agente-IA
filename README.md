@@ -65,15 +65,26 @@ npm test
 
 ## Project structure
 
+El proyecto está dividido en dos módulos de producto + código compartido:
+
 ```
 src/
-  channels/     CLI simulation (Phase 3: WhatsApp webhook)
-  core/         Agent orchestrator, gap-filler, prompts
-  business/     Reservation domain, date/time normalizer
-  integrations/ LLM (Claude) + Calendar (mock → Google in Phase 1)
-  data/         SQLite state persistence
-  config/       Restaurant configuration
-tests/          Unit tests (normalizer, gap-filler)
+  whatsapp/           Agente de WhatsApp (reservas y pedidos)
+    routes.ts           Rutas Fastify: webhook de Meta + pedidos web
+    channels/           Cloud API de WhatsApp + simulación CLI
+    core/               Orquestador del agente, gap-filler, prompts, recordatorios
+    business/           Dominio de reservas/pedidos, normalizador de fechas
+    data/               Persistencia de estado en SQLite
+    integrations/       Google Calendar + Sheets (menú, CRM)
+  google-reviews/     Respuesta automática a reseñas de Google
+    review-responder.ts Ciclo periódico que responde reseñas pendientes
+    gbp-client.ts       Cliente de Google Business Profile API
+  shared/             Código usado por ambos módulos
+    config/             Configuración de restaurantes (tipos, env, demo)
+    llm/                Cliente de Claude e interfaz del LLM
+    sheets/             Sheet maestro multi-tenant
+  server/             Punto de entrada: arranca ambos módulos
+tests/                Unit tests (normalizer, gap-filler, webhook, QA)
 ```
 
 ## Roadmap

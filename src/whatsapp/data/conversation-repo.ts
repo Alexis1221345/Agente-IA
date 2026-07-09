@@ -1,11 +1,9 @@
 import { db } from "./db.js";
 import type { ReservationData, ReservationStatus } from "../business/reservation.js";
 import { orderTotal, formatOrderId } from "../business/order.js";
+import type { Message } from "../../shared/llm/llm.interface.js";
 
-export interface Message {
-  role: "user" | "assistant";
-  content: string;
-}
+export type { Message };
 
 export interface ConversationState {
   phone: string;

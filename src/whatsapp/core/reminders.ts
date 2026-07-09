@@ -3,7 +3,7 @@ import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
 import { db } from "../data/db.js";
 import { sendWhatsAppMessage } from "../channels/whatsapp.js";
-import type { RestaurantConfig } from "../config/types.js";
+import type { RestaurantConfig } from "../../shared/config/types.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);

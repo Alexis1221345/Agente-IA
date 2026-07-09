@@ -1,8 +1,21 @@
-import type { ReservationData } from "../../business/reservation.js";
-import type { Message } from "../../data/conversation-repo.js";
+/** Un turno de conversación (compartido entre el repo de conversaciones y el LLM). */
+export interface Message {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** Campos de reserva que el LLM puede extraer de un mensaje.
+ *  Subconjunto estructural de ReservationData (whatsapp/business/reservation). */
+export interface ExtractedReservationFields {
+  fecha?: string;
+  hora?: string;
+  personas?: number;
+  nombre?: string;
+  peticiones?: string;
+}
 
 export interface ExtractedFields {
-  fields: Partial<ReservationData>;
+  fields: ExtractedReservationFields;
   raw?: Record<string, string>;
 }
 

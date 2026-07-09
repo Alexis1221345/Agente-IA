@@ -4,8 +4,8 @@ import { config } from "dotenv";
 config();
 
 import { ReservationAgent } from "../core/agent.js";
-import { ClaudeLLMClient } from "../integrations/llm/claude.js";
-import { restaurantRegistry } from "../config/demo.js";
+import { ClaudeLLMClient } from "../../shared/llm/claude.js";
+import { restaurantRegistry } from "../../shared/config/demo.js";
 import { resetConversation } from "../data/conversation-repo.js";
 
 const RESTAURANT_ID = process.env.RESTAURANT_ID ?? "demo";
