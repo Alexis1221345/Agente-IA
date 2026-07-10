@@ -12,31 +12,22 @@ const SHEET_ID = process.env.MASTER_SHEET_ID;
 if (!SHEET_ID) throw new Error("Falta MASTER_SHEET_ID en .env");
 
 const EXPECTED_HEADERS = [
-  // A  - U  (ya existían)
-  "phone_number_id",     // A  0
-  "restaurant_id",       // B  1
-  "nombre",              // C  2
-  "timezone",            // D  3
-  "calendar_id",         // E  4
-  "menu_sheet_id",       // F  5
-  "menu_web_url",        // G  6
-  "human_phone",         // H  7
-  "cancellation_policy", // I  8
-  "slot_duration",       // J  9
-  "capacity",            // K 10
-  "quota",               // L 11
-  "max_group",           // M 12
-  "lunes",               // N 13
-  "martes",              // O 14
-  "miercoles",           // P 15
-  "jueves",              // Q 16
-  "viernes",             // R 17
-  "sabado",              // S 18
-  "domingo",             // T 19
-  "faq",                 // U 20
-  // V - W  (nuevas)
-  "website_url",         // V 21
-  "crm_webhook_url",     // W 22
+  // Mismo orden por secciones que scripts/reorganize-master-sheet.mjs
+  // Identificación
+  "nombre", "restaurant_id", "phone_number_id",
+  // Servicios
+  "whatsapp_enabled", "reservas_enabled", "pedidos_enabled", "reviews_enabled",
+  // Reservas
+  "timezone", "calendar_id", "human_phone", "cancellation_policy",
+  "slot_duration", "capacity", "quota", "max_group",
+  // Horarios
+  "lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo",
+  // Menú y web
+  "menu_sheet_id", "menu_web_url", "website_url",
+  // Avanzado
+  "faq", "crm_webhook_url",
+  // Reseñas Google
+  "gbp_account_id", "gbp_location_id", "reviews_tono", "reviews_poll_minutes",
 ];
 
 const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON);
@@ -50,7 +41,7 @@ async function main() {
   // Leer encabezados actuales
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: "Restaurantes!A1:Z1",
+    range: "Restaurantes!A1:AZ1",
   });
   const currentHeaders = res.data.values?.[0] ?? [];
   console.log(`Columnas actuales (${currentHeaders.length}):`, currentHeaders.join(", "));
@@ -117,7 +108,9 @@ async function main() {
   console.log("\n════════════════════════════════════════════════════");
   console.log("Columnas en el Sheet ahora:");
   EXPECTED_HEADERS.forEach((h, i) => {
-    const letter = String.fromCharCode(65 + i);
+    const letter = i < 26
+      ? String.fromCharCode(65 + i)
+      : "A" + String.fromCharCode(65 + i - 26);
     const isNew = missing.includes(h) ? " ← NUEVA" : "";
     console.log(`  ${letter}  ${h}${isNew}`);
   });

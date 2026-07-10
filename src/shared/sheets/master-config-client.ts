@@ -5,38 +5,16 @@ import type { RestaurantConfig, DaySchedule } from "../config/types.js";
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-// Column indices in the Sheet (A=0, B=1, …)
-const COL = {
-  phone_number_id:     0,
-  restaurant_id:       1,
-  nombre:              2,
-  timezone:            3,
-  calendar_id:         4,
-  menu_sheet_id:       5,
-  menu_web_url:        6,
-  human_phone:         7,
-  cancellation_policy: 8,
-  slot_duration:       9,
-  capacity:           10,
-  quota:              11,
-  max_group:          12,
-  // días: lunes=13 … domingo=19
-  lunes:              13,
-  martes:             14,
-  miercoles:          15,
-  jueves:             16,
-  viernes:            17,
-  sabado:             18,
-  domingo:            19,
-  faq:                20,
-  website_url:        21,
-  crm_webhook_url:   22,
-  gbp_account_id:    23,
-  gbp_location_id:   24,
-  reviews_enabled:   25,
-  reviews_tono:      26,
-  reviews_poll_minutes: 27,
-} as const;
+/**
+ * Las columnas se buscan POR NOMBRE en la fila de encabezados (fila 1),
+ * así el Sheet puede reordenarse o crecer sin romper el código.
+ */
+type HeaderIndex = Map<string, number>;
+
+function cell(row: string[], idx: HeaderIndex, header: string): string {
+  const i = idx.get(header);
+  return i === undefined ? "" : (row[i] ?? "");
+}
 
 /** "HH:MM-HH:MM" → DaySchedule | null */
 function parseDay(raw: string): DaySchedule | null {
@@ -63,21 +41,21 @@ function parseFaq(raw: string): Record<string, string> {
   }
 }
 
-function rowToConfig(row: string[]): RestaurantConfig | null {
-  const phoneNumberIdRaw = row[COL.phone_number_id]?.trim();
+function rowToConfig(row: string[], idx: HeaderIndex): RestaurantConfig | null {
+  const phoneNumberIdRaw = cell(row, idx, "phone_number_id").trim();
   if (!phoneNumberIdRaw) return null;
 
   const phoneNumberId = normalizeId(phoneNumberIdRaw);
-  const restaurantId  = row[COL.restaurant_id]?.trim() || phoneNumberId;
+  const restaurantId  = cell(row, idx, "restaurant_id").trim() || phoneNumberId;
 
   const schedule: Record<string, DaySchedule | null> = {
-    monday:    parseDay(row[COL.lunes]    ?? ""),
-    tuesday:   parseDay(row[COL.martes]   ?? ""),
-    wednesday: parseDay(row[COL.miercoles]?? ""),
-    thursday:  parseDay(row[COL.jueves]   ?? ""),
-    friday:    parseDay(row[COL.viernes]  ?? ""),
-    saturday:  parseDay(row[COL.sabado]   ?? ""),
-    sunday:    parseDay(row[COL.domingo]  ?? ""),
+    monday:    parseDay(cell(row, idx, "lunes")),
+    tuesday:   parseDay(cell(row, idx, "martes")),
+    wednesday: parseDay(cell(row, idx, "miercoles")),
+    thursday:  parseDay(cell(row, idx, "jueves")),
+    friday:    parseDay(cell(row, idx, "viernes")),
+    saturday:  parseDay(cell(row, idx, "sabado")),
+    sunday:    parseDay(cell(row, idx, "domingo")),
   };
 
   // Global cred from env (not per-restaurant)
@@ -87,27 +65,31 @@ function rowToConfig(row: string[]): RestaurantConfig | null {
   return {
     id: restaurantId,
     phoneNumberId,
-    name:                row[COL.nombre]?.trim()              || restaurantId,
-    timezone:            row[COL.timezone]?.trim()            || "America/Mexico_City",
-    calendarId:          row[COL.calendar_id]?.trim()         || "",
-    sheetsId:            row[COL.menu_sheet_id]?.trim()       || undefined,
-    menuWebUrl:          row[COL.menu_web_url]?.trim()        || undefined,
-    websiteUrl:          row[COL.website_url]?.trim()         || undefined,
-    crmWebhookUrl:       row[COL.crm_webhook_url]?.trim()    || undefined,
-    humanPhone:          row[COL.human_phone]?.trim()         || "",
-    cancellationPolicy:  row[COL.cancellation_policy]?.trim() || "",
-    slotDurationMinutes: Number(row[COL.slot_duration]  ?? 90)  || 90,
-    capacityPerSlot:     Number(row[COL.capacity]       ?? 30)  || 30,
-    bookableQuota:       Number(row[COL.quota]          ?? 0.8) || 0.8,
-    maxAutoGroupSize:    Number(row[COL.max_group]      ?? 8)   || 8,
+    name:                cell(row, idx, "nombre").trim()              || restaurantId,
+    timezone:            cell(row, idx, "timezone").trim()            || "America/Mexico_City",
+    calendarId:          cell(row, idx, "calendar_id").trim()         || "",
+    sheetsId:            cell(row, idx, "menu_sheet_id").trim()       || undefined,
+    menuWebUrl:          cell(row, idx, "menu_web_url").trim()        || undefined,
+    websiteUrl:          cell(row, idx, "website_url").trim()         || undefined,
+    crmWebhookUrl:       cell(row, idx, "crm_webhook_url").trim()     || undefined,
+    humanPhone:          cell(row, idx, "human_phone").trim()         || "",
+    cancellationPolicy:  cell(row, idx, "cancellation_policy").trim() || "",
+    slotDurationMinutes: Number(cell(row, idx, "slot_duration"))  || 90,
+    capacityPerSlot:     Number(cell(row, idx, "capacity"))       || 30,
+    bookableQuota:       Number(cell(row, idx, "quota"))          || 0.8,
+    maxAutoGroupSize:    Number(cell(row, idx, "max_group"))      || 8,
     schedule,
     googleCredentialsPath: credJson || credPath || undefined,
-    faq: parseFaq(row[COL.faq] ?? ""),
-    gbpAccountId:  row[COL.gbp_account_id]?.trim()  || undefined,
-    gbpLocationId: row[COL.gbp_location_id]?.trim() || undefined,
-    reviewsEnabled: /^(true|sí|si|yes|1)$/i.test(row[COL.reviews_enabled]?.trim() ?? ""),
-    reviewsTone:   row[COL.reviews_tono]?.trim()    || undefined,
-    reviewsPollMinutes: Number(row[COL.reviews_poll_minutes]?.trim()) || undefined,
+    faq: parseFaq(cell(row, idx, "faq")),
+    gbpAccountId:  cell(row, idx, "gbp_account_id").trim()  || undefined,
+    gbpLocationId: cell(row, idx, "gbp_location_id").trim() || undefined,
+    reviewsEnabled: /^(true|sí|si|yes|1)$/i.test(cell(row, idx, "reviews_enabled").trim()),
+    reviewsTone:   cell(row, idx, "reviews_tono").trim()    || undefined,
+    reviewsPollMinutes: Number(cell(row, idx, "reviews_poll_minutes").trim()) || undefined,
+    // Celda vacía = activo (compatibilidad con filas existentes); solo FALSE/no/0 lo apaga
+    whatsappEnabled:     !/^(false|no|0)$/i.test(cell(row, idx, "whatsapp_enabled").trim()),
+    reservationsEnabled: !/^(false|no|0)$/i.test(cell(row, idx, "reservas_enabled").trim()),
+    ordersEnabled:       !/^(false|no|0)$/i.test(cell(row, idx, "pedidos_enabled").trim()),
   };
 }
 
@@ -139,14 +121,16 @@ export class MasterConfigClient {
 
     const res = await this.sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: "Restaurantes!A2:AB100",
+      range: "Restaurantes!A1:AZ100", // fila 1 = encabezados; columnas por nombre
     });
 
     const rows = (res.data.values ?? []) as string[][];
+    const headers = (rows[0] ?? []).map((h) => String(h).trim().toLowerCase());
+    const idx: HeaderIndex = new Map(headers.map((h, i) => [h, i]));
     const configs = new Map<string, RestaurantConfig>();
 
-    for (const row of rows) {
-      const cfg = rowToConfig(row);
+    for (const row of rows.slice(1)) {
+      const cfg = rowToConfig(row, idx);
       if (cfg) configs.set(cfg.phoneNumberId!, cfg);
     }
 

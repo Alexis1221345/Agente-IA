@@ -27,4 +27,7 @@ export interface RestaurantConfig {
   reviewsEnabled?: boolean;    // enable automatic replies to Google reviews
   reviewsTone?: string;        // extra per-restaurant instructions for review replies
   reviewsPollMinutes?: number; // how often to check for new reviews (per restaurant)
+  whatsappEnabled?: boolean;   // enable the WhatsApp agent (undefined/blank = enabled)
+  reservationsEnabled?: boolean; // chatbot method: table reservations (undefined/blank = enabled)
+  ordersEnabled?: boolean;       // chatbot method: food orders (undefined/blank = enabled; also needs sheetsId)
 }

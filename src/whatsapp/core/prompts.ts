@@ -1,6 +1,34 @@
 import type { RestaurantConfig } from "../../shared/config/types.js";
 import { currentOpenStatus } from "../business/schedule.js";
 
+/**
+ * Línea de capacidades según los métodos activos del restaurante
+ * (reservas_enabled / pedidos_enabled en el Sheet maestro), para que el
+ * LLM nunca ofrezca un método apagado al responder preguntas.
+ */
+function buildCapabilityLines(config: RestaurantConfig): string {
+  const reservas = config.reservationsEnabled !== false;
+  const pedidos  = config.ordersEnabled !== false && Boolean(config.sheetsId);
+
+  const can = [
+    reservas ? "tomar reservas" : null,
+    pedidos  ? "tomar pedidos"  : null,
+  ].filter(Boolean) as string[];
+
+  const lines = [
+    can.length
+      ? `(Puedes ${can.join(" y ")} y responder preguntas en cualquier horario — solo la hora de la reserva/pedido debe caer dentro del horario de servicio)`
+      : `(Por este medio SOLO respondes preguntas — no tomas reservas ni pedidos)`,
+  ];
+  if (!reservas) {
+    lines.push(`- IMPORTANTE: NO manejas reservas por WhatsApp. Si piden reservar, indícalo amablemente. Nunca ofrezcas apartar mesa.`);
+  }
+  if (!pedidos) {
+    lines.push(`- IMPORTANTE: NO manejas pedidos por WhatsApp. Si piden ordenar comida, indícalo amablemente. Nunca ofrezcas tomar un pedido.`);
+  }
+  return lines.join("\n");
+}
+
 export function buildSystemPrompt(
   config: RestaurantConfig,
   menuText?: string,
@@ -29,7 +57,7 @@ export function buildSystemPrompt(
 
 ESTADO ACTUAL DEL NEGOCIO
 ${statusLine}
-(Puedes tomar reservas y responder preguntas en cualquier horario — solo la hora de la reserva/pedido debe caer dentro del horario de servicio)
+${buildCapabilityLines(config)}
 
 INFORMACIÓN DEL RESTAURANTE (tu fuente principal de respuestas)
 Preguntas frecuentes:

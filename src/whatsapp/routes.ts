@@ -195,6 +195,11 @@ export function registerWhatsAppRoutes(app: FastifyInstance, deps: WhatsAppRoute
       console.error(`[webhook] Sin configuración para phone_number_id="${incomingPnid}" — mensaje ignorado`);
       return;
     }
+    // Servicio de WhatsApp desactivado para este restaurante (whatsapp_enabled=FALSE en el Sheet)
+    if (config.whatsappEnabled === false) {
+      console.log(`[webhook] ${config.name}: servicio de WhatsApp desactivado — mensaje ignorado`);
+      return;
+    }
     // Sync master-sheet config into the agent's registry so it can look it up by id
     restaurantRegistry[config.id] = config;
     const restaurantId = config.id;

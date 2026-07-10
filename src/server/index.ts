@@ -87,7 +87,12 @@ try {
       const configs = await masterClient.getConfigs();
       console.log(`🏪  Sheet maestro: ${configs.size} restaurante(s) cargado(s)`);
       for (const [pnid, rc] of configs) {
-        console.log(`    • ${rc.name} (${rc.id}) → pnid:${pnid}`);
+        const on = (v: boolean) => (v ? "✓" : "✗");
+        const services =
+          `WhatsApp: ${on(rc.whatsappEnabled !== false)} ` +
+          `(Reservas: ${on(rc.reservationsEnabled !== false)}, Pedidos: ${on(rc.ordersEnabled !== false && Boolean(rc.sheetsId))}) | ` +
+          `Reseñas: ${on(Boolean(rc.reviewsEnabled))}`;
+        console.log(`    • ${rc.name} (${rc.id}) → pnid:${pnid} | ${services}`);
       }
     } catch (err) {
       console.error("[server] No se pudo leer el Sheet maestro al arrancar:", err);

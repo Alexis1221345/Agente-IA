@@ -49,11 +49,14 @@ const MUNA = {
 };
 
 const HEADERS = [
-  "phone_number_id", "restaurant_id", "nombre", "timezone",
-  "calendar_id", "menu_sheet_id", "menu_web_url", "human_phone",
-  "cancellation_policy", "slot_duration", "capacity", "quota", "max_group",
+  "nombre", "restaurant_id", "phone_number_id",
+  "whatsapp_enabled", "reservas_enabled", "pedidos_enabled", "reviews_enabled",
+  "timezone", "calendar_id", "human_phone", "cancellation_policy",
+  "slot_duration", "capacity", "quota", "max_group",
   "lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo",
-  "faq", "website_url", "crm_webhook_url",
+  "menu_sheet_id", "menu_web_url", "website_url",
+  "faq", "crm_webhook_url",
+  "gbp_account_id", "gbp_location_id", "reviews_tono", "reviews_poll_minutes",
 ];
 
 async function main() {

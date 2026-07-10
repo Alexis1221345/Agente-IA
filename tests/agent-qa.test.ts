@@ -68,6 +68,32 @@ describe("buildSystemPrompt — grounding", () => {
   });
 });
 
+describe("buildSystemPrompt — métodos activos (reservas_enabled / pedidos_enabled)", () => {
+  it("con todo activo, dice que puede tomar reservas y pedidos", () => {
+    const prompt = buildSystemPrompt({ ...CAFETERIA, sheetsId: "abc" });
+    expect(prompt).toContain("tomar reservas");
+    expect(prompt).toContain("tomar pedidos");
+    expect(prompt).not.toContain("NO manejas reservas");
+  });
+
+  it("con reservas apagadas, instruye NO ofrecer reservas", () => {
+    const prompt = buildSystemPrompt({ ...CAFETERIA, reservationsEnabled: false });
+    expect(prompt).toContain("NO manejas reservas");
+    expect(prompt).not.toMatch(/\(Puedes tomar reservas/);
+  });
+
+  it("con pedidos apagados, instruye NO ofrecer pedidos", () => {
+    const prompt = buildSystemPrompt({ ...CAFETERIA, sheetsId: "abc", ordersEnabled: false });
+    expect(prompt).toContain("NO manejas pedidos");
+    expect(prompt).not.toContain("tomar pedidos");
+  });
+
+  it("con ambos apagados, solo responde preguntas", () => {
+    const prompt = buildSystemPrompt({ ...CAFETERIA, reservationsEnabled: false, ordersEnabled: false });
+    expect(prompt).toContain("SOLO respondes preguntas");
+  });
+});
+
 describe("isQuestion — pattern detection", () => {
   it("detects explicit question marks", () => {
     expect(isQuestion("¿tienen wifi?")).toBe(true);

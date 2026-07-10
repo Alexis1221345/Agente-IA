@@ -174,6 +174,9 @@ export class ReservationAgent {
   ): Promise<string> {
     // ── Pedido web enviado desde pedido.html ─────────────────────────────────
     if (text.startsWith("PEDIDO_WEB:")) {
+      if (!ordersOn(config)) {
+        return disabledMethodMessage("pedidos", config);
+      }
       return await this.handleWebOrder(state, text, config);
     }
 
@@ -230,28 +233,41 @@ export class ReservationAgent {
     // reserva para el sábado a las 8").
     if (state.status === "greeting") {
       // ORDER_INTENT needs async menu load — check first
-      if (config.sheetsId && (intent.isOrder || /^3$/.test(text.trim()))) {
-        const openStatus = currentOpenStatus(config);
-        if (!openStatus.isOpen) {
-          // Closed — offer pre-order for next opening slot
-          const next = nextOpenDaySchedule(config);
-          if (next) {
-            state.status = "ordering_preorder_time";
-            state.data.order = { items: [] };
-            return (
-              `Ahorita estamos cerrados 😴, pero con gusto te tomo el pedido para recoger *${next.label}*.\n` +
-              `Atendemos de *${next.open}* a *${next.close}*.\n\n` +
-              `¿A qué hora quieres pasar? 😊`
-            );
-          }
-          return `Lo sentimos, en este momento estamos cerrados. Por favor intenta cuando abramos. 🙏`;
+      if (intent.isOrder || /^3$/.test(text.trim())) {
+        // Método de pedidos apagado explícitamente en el Sheet maestro
+        if (config.ordersEnabled === false) {
+          return disabledMethodMessage("pedidos", config);
         }
-        state.status = "ordering_ask";
-        return await this.buildOrderingAskMessage(config);
+        if (ordersOn(config)) {
+          const openStatus = currentOpenStatus(config);
+          if (!openStatus.isOpen) {
+            // Closed — offer pre-order for next opening slot
+            const next = nextOpenDaySchedule(config);
+            if (next) {
+              state.status = "ordering_preorder_time";
+              state.data.order = { items: [] };
+              return (
+                `Ahorita estamos cerrados 😴, pero con gusto te tomo el pedido para recoger *${next.label}*.\n` +
+                `Atendemos de *${next.open}* a *${next.close}*.\n\n` +
+                `¿A qué hora quieres pasar? 😊`
+              );
+            }
+            return `Lo sentimos, en este momento estamos cerrados. Por favor intenta cuando abramos. 🙏`;
+          }
+          state.status = "ordering_ask";
+          return await this.buildOrderingAskMessage(config);
+        }
+        // Sin menú configurado → cae al Q&A de abajo (comportamiento original)
       }
       if (intent.isCancelFlow || /^2$/.test(text.trim())) {
+        if (!reservationsOn(config)) {
+          return disabledMethodMessage("reservas", config);
+        }
         state.status = "cancelling_lookup";
         return CANCEL_LOOKUP_PROMPT;
+      }
+      if ((intent.isReservation || /^1$/.test(text.trim())) && !reservationsOn(config)) {
+        return disabledMethodMessage("reservas", config);
       }
       if (intent.isReservation || /^1$/.test(text.trim())) {
         state.status = "collecting";
@@ -296,7 +312,7 @@ export class ReservationAgent {
     // User abandons the in-progress reservation and may switch to ordering
     if (intent.isAbandon && (state.status === "collecting" || state.status === "confirming")) {
       clearData(state);
-      if (config.sheetsId && intent.isOrder) {
+      if (ordersOn(config) && intent.isOrder) {
         state.status = "ordering_ask";
         return `Sin problema. 😊\n\n${await this.buildOrderingAskMessage(config)}`;
       }
@@ -562,7 +578,7 @@ export class ReservationAgent {
 
     if (intent.isReject || intent.isAbandon || CANCEL_WORDS.test(text)) {
       clearData(state);
-      if (config.sheetsId && intent.isOrder) {
+      if (ordersOn(config) && intent.isOrder) {
         state.status = "ordering_ask";
         return `Sin problema, olvidamos la reserva. 😊\n\n${await this.buildOrderingAskMessage(config)}`;
       }
@@ -1291,8 +1307,33 @@ function extractName(text: string): string | null {
     .join(" ");
 }
 
+// ── Métodos del chatbot activos por restaurante ─────────────────────────────
+// Celda vacía en el Sheet = activo; solo un FALSE explícito apaga el método.
+function reservationsOn(config: RestaurantConfig): boolean {
+  return config.reservationsEnabled !== false;
+}
+
+function ordersOn(config: RestaurantConfig): boolean {
+  return config.ordersEnabled !== false && Boolean(config.sheetsId);
+}
+
+/** Menú de opciones según los métodos activos (los números se mantienen fijos). */
+function buildOptionsMenu(config: RestaurantConfig): string {
+  const lines: string[] = [];
+  if (reservationsOn(config)) {
+    lines.push("  1️⃣  Hacer una reserva");
+    lines.push("  2️⃣  Cancelar una reserva");
+  }
+  if (ordersOn(config)) lines.push("  3️⃣  Hacer un pedido");
+  return lines.join("\n");
+}
+
+function disabledMethodMessage(method: "reservas" | "pedidos", config: RestaurantConfig): string {
+  const contact = config.humanPhone ? ` Si gustas, comunícate al *${config.humanPhone}*.` : "";
+  return `Por el momento no manejamos ${method} por este medio 🙏${contact}\n\n¿Te puedo ayudar con algo más? 😊`;
+}
+
 function buildWelcome(config: RestaurantConfig, name?: string): string {
-  const hasMenu = Boolean(config.sheetsId);
   const status = currentOpenStatus(config);
   const statusLine = status.isOpen
     ? `🟢 Abiertos hasta las ${status.todaySchedule!.close} hrs`
@@ -1303,15 +1344,12 @@ function buildWelcome(config: RestaurantConfig, name?: string): string {
     `${greeting}\n` +
     `${statusLine}\n\n` +
     `¿Con qué te puedo ayudar hoy?\n\n` +
-    `  1️⃣  Hacer una reserva\n` +
-    `  2️⃣  Cancelar una reserva\n` +
-    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
+    `${buildOptionsMenu(config)}\n` +
     `\nO cuéntame tu duda y con gusto te respondo 😊`
   );
 }
 
 function buildReturnWelcome(config: RestaurantConfig, name: string): string {
-  const hasMenu = Boolean(config.sheetsId);
   const status = currentOpenStatus(config);
   const statusLine = status.isOpen
     ? `🟢 Abiertos hasta las ${status.todaySchedule!.close} hrs`
@@ -1321,15 +1359,12 @@ function buildReturnWelcome(config: RestaurantConfig, name: string): string {
     `¡Bienvenido de regreso, *${name}*! 🎉 Qué gusto verte de nuevo por aquí.\n` +
     `${statusLine}\n\n` +
     `¿En qué te puedo ayudar hoy?\n\n` +
-    `  1️⃣  Hacer una reserva\n` +
-    `  2️⃣  Cancelar una reserva\n` +
-    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
+    `${buildOptionsMenu(config)}\n` +
     `\nO cuéntame tu duda y con gusto te respondo 😊`
   );
 }
 
 function buildReturnGreeting(config: RestaurantConfig, name?: string): string {
-  const hasMenu = Boolean(config.sheetsId);
   const status = currentOpenStatus(config);
   const statusLine = status.isOpen
     ? `🟢 Abiertos hasta las ${status.todaySchedule!.close} hrs`
@@ -1339,9 +1374,7 @@ function buildReturnGreeting(config: RestaurantConfig, name?: string): string {
   return (
     `${hi} ${statusLine}\n\n` +
     `¿En qué más te puedo ayudar?\n\n` +
-    `  1️⃣  Hacer una reserva\n` +
-    `  2️⃣  Cancelar una reserva\n` +
-    (hasMenu ? `  3️⃣  Hacer un pedido\n` : "") +
+    `${buildOptionsMenu(config)}\n` +
     `\nO cuéntame tu duda 🙌`
   );
 }
